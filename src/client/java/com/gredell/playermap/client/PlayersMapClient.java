@@ -43,6 +43,7 @@ public class PlayersMapClient implements ClientModInitializer {
 			ClientPlayerMapData.clear();
 			ChunkSurfaceColors.clear();
 			ExploredMapStorage.saveNow();
+			MapScreen.releaseSharedRenderer(client);
 		});
 
 		openMapKey = KeyBindingHelper.registerKeyBinding(

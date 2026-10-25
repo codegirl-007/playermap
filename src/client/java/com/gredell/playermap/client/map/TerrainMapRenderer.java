@@ -11,7 +11,7 @@ import net.minecraft.world.level.Level;
 
 public final class TerrainMapRenderer {
 	private static final int FULL_REBUILD_SLICE_THRESHOLD = 12_000;
-	private static final int MAX_TEXELS_PER_FRAME = 12_000;
+	private static final long SLICE_NANOS_BUDGET = 2_000_000L;
 
 	private final Identifier textureId;
 	private final int maxTextureSize;
@@ -187,17 +187,18 @@ public final class TerrainMapRenderer {
 
 	private void advanceSlice(Minecraft client, NativeImage image) {
 		int texels = textureWidth * textureHeight;
-		int end = Math.min(texels, sliceIndex + MAX_TEXELS_PER_FRAME);
+		long deadline = System.nanoTime() + SLICE_NANOS_BUDGET;
 		var level = client.level;
-		for (int i = sliceIndex; i < end; i++) {
-			int pixelX = i % textureWidth;
-			int pixelZ = i / textureWidth;
-			writeTexel(level, image, sliceDimension, sliceBlocksPerPixel, sliceMinX, sliceMinZ, pixelX, pixelZ);
+		MapWorldSampler.RasterPass pass = MapWorldSampler.beginRaster(level, sliceDimension);
+		while (sliceIndex < texels && System.nanoTime() < deadline) {
+			int pixelX = sliceIndex % textureWidth;
+			int pixelZ = sliceIndex / textureWidth;
+			writeTexel(pass, image, sliceBlocksPerPixel, sliceMinX, sliceMinZ, pixelX, pixelZ);
+			sliceIndex++;
 		}
-		sliceIndex = end;
-		texture.upload();
 
 		if (sliceIndex >= texels) {
+			texture.upload();
 			slicing = false;
 			dirty = false;
 			double halfSpanX = (textureWidth * sliceBlocksPerPixel) / 2.0;
@@ -214,25 +215,24 @@ public final class TerrainMapRenderer {
 		double minX,
 		double minZ
 	) {
-		var level = client.level;
+		MapWorldSampler.RasterPass pass = MapWorldSampler.beginRaster(client.level, dimension);
 		for (int pixelX = 0; pixelX < textureWidth; pixelX++) {
 			for (int pixelZ = 0; pixelZ < textureHeight; pixelZ++) {
-				writeTexel(level, image, dimension, blocksPerPixel, minX, minZ, pixelX, pixelZ);
+				writeTexel(pass, image, blocksPerPixel, minX, minZ, pixelX, pixelZ);
 			}
 		}
 	}
 
 	private void writeTexel(
-		net.minecraft.client.multiplayer.ClientLevel level,
+		MapWorldSampler.RasterPass pass,
 		NativeImage image,
-		ResourceKey<Level> dimension,
 		double blocksPerPixel,
 		double minX,
 		double minZ,
 		int pixelX,
 		int pixelZ
 	) {
-		int color = MapWorldSampler.sampleTexel(level, dimension, minX, minZ, blocksPerPixel, pixelX, pixelZ);
+		int color = pass.sampleTexel(minX, minZ, blocksPerPixel, pixelX, pixelZ);
 		image.setPixel(pixelX, pixelZ, color);
 	}
 
@@ -260,6 +260,46 @@ public final class TerrainMapRenderer {
 		scrollImage(image, deltaPx, deltaPz);
 		fillExposedStrips(client, image, dimension, blocksPerPixel, minX, minZ, deltaPx, deltaPz);
 		return true;
+	}
+
+	private void fillExposedStrips(
+		Minecraft client,
+		NativeImage image,
+		ResourceKey<Level> dimension,
+		double blocksPerPixel,
+		double minX,
+		double minZ,
+		int deltaPx,
+		int deltaPz
+	) {
+		MapWorldSampler.RasterPass pass = MapWorldSampler.beginRaster(client.level, dimension);
+		if (deltaPx > 0) {
+			for (int px = textureWidth - deltaPx; px < textureWidth; px++) {
+				for (int pz = 0; pz < textureHeight; pz++) {
+					writeTexel(pass, image, blocksPerPixel, minX, minZ, px, pz);
+				}
+			}
+		} else if (deltaPx < 0) {
+			for (int px = 0; px < -deltaPx; px++) {
+				for (int pz = 0; pz < textureHeight; pz++) {
+					writeTexel(pass, image, blocksPerPixel, minX, minZ, px, pz);
+				}
+			}
+		}
+
+		if (deltaPz > 0) {
+			for (int pz = textureHeight - deltaPz; pz < textureHeight; pz++) {
+				for (int px = 0; px < textureWidth; px++) {
+					writeTexel(pass, image, blocksPerPixel, minX, minZ, px, pz);
+				}
+			}
+		} else if (deltaPz < 0) {
+			for (int pz = 0; pz < -deltaPz; pz++) {
+				for (int px = 0; px < textureWidth; px++) {
+					writeTexel(pass, image, blocksPerPixel, minX, minZ, px, pz);
+				}
+			}
+		}
 	}
 
 	private static void scrollImage(NativeImage image, int deltaPx, int deltaPz) {
@@ -312,46 +352,6 @@ public final class TerrainMapRenderer {
 				}
 			}
 			copy.close();
-		}
-	}
-
-	private void fillExposedStrips(
-		Minecraft client,
-		NativeImage image,
-		ResourceKey<Level> dimension,
-		double blocksPerPixel,
-		double minX,
-		double minZ,
-		int deltaPx,
-		int deltaPz
-	) {
-		var level = client.level;
-		if (deltaPx > 0) {
-			for (int px = textureWidth - deltaPx; px < textureWidth; px++) {
-				for (int pz = 0; pz < textureHeight; pz++) {
-					writeTexel(level, image, dimension, blocksPerPixel, minX, minZ, px, pz);
-				}
-			}
-		} else if (deltaPx < 0) {
-			for (int px = 0; px < -deltaPx; px++) {
-				for (int pz = 0; pz < textureHeight; pz++) {
-					writeTexel(level, image, dimension, blocksPerPixel, minX, minZ, px, pz);
-				}
-			}
-		}
-
-		if (deltaPz > 0) {
-			for (int pz = textureHeight - deltaPz; pz < textureHeight; pz++) {
-				for (int px = 0; px < textureWidth; px++) {
-					writeTexel(level, image, dimension, blocksPerPixel, minX, minZ, px, pz);
-				}
-			}
-		} else if (deltaPz < 0) {
-			for (int pz = 0; pz < -deltaPz; pz++) {
-				for (int px = 0; px < textureWidth; px++) {
-					writeTexel(level, image, dimension, blocksPerPixel, minX, minZ, px, pz);
-				}
-			}
 		}
 	}
 

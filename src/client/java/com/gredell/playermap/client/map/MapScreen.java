@@ -25,7 +25,8 @@ public class MapScreen extends Screen {
 	private static final int TAB_SPACING = 4;
 	private static final int TAB_INSET = 6;
 
-	private final TerrainMapRenderer terrainRenderer = new TerrainMapRenderer(PlayersMap.id("terrain_map"), MAX_MAP_TEXTURE);
+	private static final TerrainMapRenderer SHARED_TERRAIN_RENDERER =
+		new TerrainMapRenderer(PlayersMap.id("terrain_map"), MAX_MAP_TEXTURE);
 
 	private ResourceKey<Level> viewDimension;
 	private double viewCenterX;
@@ -43,6 +44,10 @@ public class MapScreen extends Screen {
 		this.viewCenterZ = centerZ;
 	}
 
+	public static void releaseSharedRenderer(net.minecraft.client.Minecraft client) {
+		SHARED_TERRAIN_RENDERER.close(client);
+	}
+
 	public static MapScreen createForCurrentWorld() {
 		var client = net.minecraft.client.Minecraft.getInstance();
 		var player = client.player;
@@ -55,13 +60,13 @@ public class MapScreen extends Screen {
 
 	@Override
 	protected void init() {
-		terrainRenderer.markDirty();
+		SHARED_TERRAIN_RENDERER.markDirty();
 		addDimensionButtons();
 	}
 
 	@Override
 	public void removed() {
-		terrainRenderer.close(minecraft);
+		// Keep the shared terrain texture so pressing M again shows the last map immediately.
 	}
 
 	@Override
@@ -83,7 +88,7 @@ public class MapScreen extends Screen {
 
 	@Override
 	public void render(GuiGraphics graphics, int mouseX, int mouseY, float delta) {
-		terrainRenderer.draw(
+		SHARED_TERRAIN_RENDERER.draw(
 			graphics,
 			viewDimension,
 			viewCenterX,
@@ -192,7 +197,7 @@ public class MapScreen extends Screen {
 		if (isMapInteraction(mouseX, mouseY)) {
 			double factor = scrollY > 0 ? 0.85 : 1.15;
 			blocksPerPixel = MapViewMath.clamp(blocksPerPixel * factor, MIN_BLOCKS_PER_PIXEL, MAX_BLOCKS_PER_PIXEL);
-			terrainRenderer.markDirty();
+			SHARED_TERRAIN_RENDERER.markDirty();
 			return true;
 		}
 		return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
@@ -235,7 +240,7 @@ public class MapScreen extends Screen {
 			return;
 		}
 		viewDimension = dimension;
-		terrainRenderer.markDirty();
+		SHARED_TERRAIN_RENDERER.markDirty();
 		if (minecraft.player != null && minecraft.player.level().dimension().equals(dimension)) {
 			centerOnPlayer();
 			followPlayer = true;
@@ -252,7 +257,7 @@ public class MapScreen extends Screen {
 		}
 		viewCenterX = minecraft.player.getX();
 		viewCenterZ = minecraft.player.getZ();
-		terrainRenderer.markDirty();
+		SHARED_TERRAIN_RENDERER.markDirty();
 	}
 
 	private boolean isMapInteraction(double mouseX, double mouseY) {
