@@ -11,7 +11,8 @@ import net.minecraft.world.level.Level;
 
 public final class TerrainMapRenderer {
 	private static final int FULL_REBUILD_SLICE_THRESHOLD = 12_000;
-	private static final long SLICE_NANOS_BUDGET = 2_000_000L;
+	private static final long SLICE_NANOS_BUDGET_MINIMAP = 2_000_000L;
+	private static final long SLICE_NANOS_BUDGET_FULLSCREEN = 3_000_000L;
 
 	private final Identifier textureId;
 	private final int maxTextureSize;
@@ -142,16 +143,27 @@ public final class TerrainMapRenderer {
 			return;
 		}
 
-		if (dimension.equals(lastDimension)
-			&& Double.compare(blocksPerPixel, lastBlocksPerPixel) == 0
-			&& (minX != lastMinX || minZ != lastMinZ)) {
-			if (tryScrollRebuild(client, image, dimension, blocksPerPixel, minX, minZ)) {
-				storeRasterState(dimension, blocksPerPixel, minX, minZ);
-				texture.upload();
-			} else {
-				startFullRebuild(client, image, dimension, viewCenterX, viewCenterZ, blocksPerPixel, minX, minZ);
+		if (!dimension.equals(lastDimension) || Double.compare(blocksPerPixel, lastBlocksPerPixel) != 0) {
+			startFullRebuild(client, image, dimension, viewCenterX, viewCenterZ, blocksPerPixel, minX, minZ);
+			return;
+		}
+
+		if (minX != lastMinX || minZ != lastMinZ) {
+			switch (tryScrollRebuild(client, image, dimension, blocksPerPixel, minX, minZ)) {
+				case SCROLLED -> texture.upload();
+				case NEEDS_FULL_REBUILD -> startFullRebuild(
+					client, image, dimension, viewCenterX, viewCenterZ, blocksPerPixel, minX, minZ
+				);
+				case UNCHANGED -> {
+				}
 			}
 		}
+	}
+
+	private enum ScrollOutcome {
+		UNCHANGED,
+		SCROLLED,
+		NEEDS_FULL_REBUILD
 	}
 
 	private void startFullRebuild(
@@ -187,7 +199,10 @@ public final class TerrainMapRenderer {
 
 	private void advanceSlice(Minecraft client, NativeImage image) {
 		int texels = textureWidth * textureHeight;
-		long deadline = System.nanoTime() + SLICE_NANOS_BUDGET;
+		long budget = texels > FULL_REBUILD_SLICE_THRESHOLD
+			? SLICE_NANOS_BUDGET_FULLSCREEN
+			: SLICE_NANOS_BUDGET_MINIMAP;
+		long deadline = System.nanoTime() + budget;
 		var level = client.level;
 		MapWorldSampler.RasterPass pass = MapWorldSampler.beginRaster(level, sliceDimension);
 		while (sliceIndex < texels && System.nanoTime() < deadline) {
@@ -236,7 +251,7 @@ public final class TerrainMapRenderer {
 		image.setPixel(pixelX, pixelZ, color);
 	}
 
-	private boolean tryScrollRebuild(
+	private ScrollOutcome tryScrollRebuild(
 		Minecraft client,
 		NativeImage image,
 		ResourceKey<Level> dimension,
@@ -245,21 +260,27 @@ public final class TerrainMapRenderer {
 		double minZ
 	) {
 		if (!rasterValid || !dimension.equals(lastDimension) || Double.compare(blocksPerPixel, lastBlocksPerPixel) != 0) {
-			return false;
+			return ScrollOutcome.NEEDS_FULL_REBUILD;
 		}
 
 		int deltaPx = (int) Math.round((minX - lastMinX) / blocksPerPixel);
 		int deltaPz = (int) Math.round((minZ - lastMinZ) / blocksPerPixel);
 		if (deltaPx == 0 && deltaPz == 0) {
-			return true;
+			return ScrollOutcome.UNCHANGED;
 		}
 		if (Math.abs(deltaPx) >= textureWidth || Math.abs(deltaPz) >= textureHeight) {
-			return false;
+			return ScrollOutcome.NEEDS_FULL_REBUILD;
 		}
 
 		scrollImage(image, deltaPx, deltaPz);
 		fillExposedStrips(client, image, dimension, blocksPerPixel, minX, minZ, deltaPx, deltaPz);
-		return true;
+		storeRasterState(
+			dimension,
+			blocksPerPixel,
+			lastMinX + deltaPx * blocksPerPixel,
+			lastMinZ + deltaPz * blocksPerPixel
+		);
+		return ScrollOutcome.SCROLLED;
 	}
 
 	private void fillExposedStrips(

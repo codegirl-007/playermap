@@ -60,7 +60,6 @@ public class MapScreen extends Screen {
 
 	@Override
 	protected void init() {
-		SHARED_TERRAIN_RENDERER.markDirty();
 		addDimensionButtons();
 	}
 
