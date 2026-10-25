@@ -78,7 +78,6 @@ public class MapScreen extends Screen {
 		if (nextX != viewCenterX || nextZ != viewCenterZ) {
 			viewCenterX = nextX;
 			viewCenterZ = nextZ;
-			terrainRenderer.markDirty();
 		}
 	}
 
@@ -183,7 +182,6 @@ public class MapScreen extends Screen {
 			viewCenterZ -= (event.y() - lastDragMouseY) * blocksPerPixel;
 			lastDragMouseX = event.x();
 			lastDragMouseY = event.y();
-			terrainRenderer.markDirty();
 			return true;
 		}
 		return super.mouseDragged(event, deltaX, deltaY);

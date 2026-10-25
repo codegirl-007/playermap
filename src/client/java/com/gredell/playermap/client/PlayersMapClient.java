@@ -14,7 +14,6 @@ import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
 import net.minecraft.client.KeyMapping;
-import net.minecraft.world.level.ChunkPos;
 import org.lwjgl.glfw.GLFW;
 
 public class PlayersMapClient implements ClientModInitializer {
@@ -65,6 +64,7 @@ public class PlayersMapClient implements ClientModInitializer {
 		ClientChunkEvents.CHUNK_LOAD.register((world, chunk) -> {
 			ExploredMapStorage.markExplored(world.dimension(), chunk.getPos());
 			ChunkSurfaceColors.capture(chunk);
+			MinimapOverlay.notifyTerrainChanged();
 		});
 
 		ClientTickEvents.END_CLIENT_TICK.register(client -> {
@@ -73,11 +73,7 @@ public class PlayersMapClient implements ClientModInitializer {
 			}
 
 			if (client.player != null && client.level != null) {
-				ChunkPos chunkPos = client.player.chunkPosition();
-				ExploredMapStorage.markExplored(client.level.dimension(), chunkPos);
-				if (client.level.hasChunk(chunkPos.x, chunkPos.z)) {
-					ChunkSurfaceColors.capture(client.level.getChunk(chunkPos.x, chunkPos.z));
-				}
+				ExploredMapStorage.markExplored(client.level.dimension(), client.player.chunkPosition());
 			}
 
 			ExploredMapStorage.saveIfNeeded();

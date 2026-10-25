@@ -32,6 +32,29 @@ public final class MapUiStyles {
 		graphics.fill(left, top, left + size, top + 1, ARGB.color(90, 255, 255, 255));
 	}
 
+	/** Outer inset from map content edge (pad + shadow), matches {@link #drawMapFrame}. */
+	public static int minimapFrameOuterInset() {
+		return 5;
+	}
+
+	public static void drawMinimapCoords(
+		GuiGraphics graphics,
+		Font font,
+		int left,
+		int top,
+		int width,
+		int blockX,
+		int blockY,
+		int blockZ
+	) {
+		String text = String.format("x %d  ·  y %d  ·  z %d", blockX, blockY, blockZ);
+		int barHeight = 12;
+		graphics.fill(left, top, left + width, top + barHeight, ARGB.color(200, 12, 16, 24));
+		graphics.renderOutline(left, top, width, barHeight, ACCENT_DIM);
+		int textX = left + Math.max(4, (width - font.width(text)) / 2);
+		graphics.drawString(font, Component.literal(text), textX, top + 2, ARGB.color(255, 190, 200, 215), false);
+	}
+
 	public static void drawMinimapChrome(
 		GuiGraphics graphics,
 		Font font,

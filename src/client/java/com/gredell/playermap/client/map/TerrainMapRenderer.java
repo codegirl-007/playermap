@@ -10,12 +10,30 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
 
 public final class TerrainMapRenderer {
+	private static final int FULL_REBUILD_SLICE_THRESHOLD = 12_000;
+	private static final int MAX_TEXELS_PER_FRAME = 12_000;
+
 	private final Identifier textureId;
 	private final int maxTextureSize;
 	private DynamicTexture texture;
 	private int textureWidth;
 	private int textureHeight;
 	private boolean dirty = true;
+
+	private boolean rasterValid;
+	private ResourceKey<Level> lastDimension;
+	private double lastBlocksPerPixel;
+	private double lastMinX;
+	private double lastMinZ;
+
+	private boolean slicing;
+	private int sliceIndex;
+	private ResourceKey<Level> sliceDimension;
+	private double sliceCenterX;
+	private double sliceCenterZ;
+	private double sliceBlocksPerPixel;
+	private double sliceMinX;
+	private double sliceMinZ;
 
 	public TerrainMapRenderer(Identifier textureId, int maxTextureSize) {
 		this.textureId = textureId;
@@ -24,6 +42,8 @@ public final class TerrainMapRenderer {
 
 	public void markDirty() {
 		dirty = true;
+		slicing = false;
+		sliceIndex = 0;
 	}
 
 	public void close(Minecraft client) {
@@ -35,6 +55,9 @@ public final class TerrainMapRenderer {
 		textureWidth = 0;
 		textureHeight = 0;
 		dirty = true;
+		rasterValid = false;
+		slicing = false;
+		sliceIndex = 0;
 	}
 
 	public void draw(
@@ -89,11 +112,8 @@ public final class TerrainMapRenderer {
 		int targetWidth,
 		int targetHeight
 	) {
-		ensureTexture(client, targetWidth, targetHeight);
+		boolean resized = ensureTexture(client, targetWidth, targetHeight);
 		if (texture == null) {
-			return;
-		}
-		if (!dirty) {
 			return;
 		}
 
@@ -101,29 +121,251 @@ public final class TerrainMapRenderer {
 		if (image == null) {
 			return;
 		}
-		var level = client.level;
+
+		if (slicing) {
+			advanceSlice(client, image);
+			return;
+		}
+
 		double halfSpanX = (textureWidth * blocksPerPixel) / 2.0;
 		double halfSpanZ = (textureHeight * blocksPerPixel) / 2.0;
 		double minX = viewCenterX - halfSpanX;
 		double minZ = viewCenterZ - halfSpanZ;
 
+		if (dirty) {
+			startFullRebuild(client, image, dimension, viewCenterX, viewCenterZ, blocksPerPixel, minX, minZ);
+			return;
+		}
+
+		if (!rasterValid || resized) {
+			startFullRebuild(client, image, dimension, viewCenterX, viewCenterZ, blocksPerPixel, minX, minZ);
+			return;
+		}
+
+		if (dimension.equals(lastDimension)
+			&& Double.compare(blocksPerPixel, lastBlocksPerPixel) == 0
+			&& (minX != lastMinX || minZ != lastMinZ)) {
+			if (tryScrollRebuild(client, image, dimension, blocksPerPixel, minX, minZ)) {
+				storeRasterState(dimension, blocksPerPixel, minX, minZ);
+				texture.upload();
+			} else {
+				startFullRebuild(client, image, dimension, viewCenterX, viewCenterZ, blocksPerPixel, minX, minZ);
+			}
+		}
+	}
+
+	private void startFullRebuild(
+		Minecraft client,
+		NativeImage image,
+		ResourceKey<Level> dimension,
+		double viewCenterX,
+		double viewCenterZ,
+		double blocksPerPixel,
+		double minX,
+		double minZ
+	) {
+		int texels = textureWidth * textureHeight;
+		if (texels > FULL_REBUILD_SLICE_THRESHOLD) {
+			slicing = true;
+			sliceIndex = 0;
+			sliceDimension = dimension;
+			sliceCenterX = viewCenterX;
+			sliceCenterZ = viewCenterZ;
+			sliceBlocksPerPixel = blocksPerPixel;
+			sliceMinX = minX;
+			sliceMinZ = minZ;
+			advanceSlice(client, image);
+			return;
+		}
+
+		fillFull(client, image, dimension, blocksPerPixel, minX, minZ);
+		texture.upload();
+		dirty = false;
+		slicing = false;
+		storeRasterState(dimension, blocksPerPixel, minX, minZ);
+	}
+
+	private void advanceSlice(Minecraft client, NativeImage image) {
+		int texels = textureWidth * textureHeight;
+		int end = Math.min(texels, sliceIndex + MAX_TEXELS_PER_FRAME);
+		var level = client.level;
+		for (int i = sliceIndex; i < end; i++) {
+			int pixelX = i % textureWidth;
+			int pixelZ = i / textureWidth;
+			writeTexel(level, image, sliceDimension, sliceBlocksPerPixel, sliceMinX, sliceMinZ, pixelX, pixelZ);
+		}
+		sliceIndex = end;
+		texture.upload();
+
+		if (sliceIndex >= texels) {
+			slicing = false;
+			dirty = false;
+			double halfSpanX = (textureWidth * sliceBlocksPerPixel) / 2.0;
+			double halfSpanZ = (textureHeight * sliceBlocksPerPixel) / 2.0;
+			storeRasterState(sliceDimension, sliceBlocksPerPixel, sliceCenterX - halfSpanX, sliceCenterZ - halfSpanZ);
+		}
+	}
+
+	private void fillFull(
+		Minecraft client,
+		NativeImage image,
+		ResourceKey<Level> dimension,
+		double blocksPerPixel,
+		double minX,
+		double minZ
+	) {
+		var level = client.level;
 		for (int pixelX = 0; pixelX < textureWidth; pixelX++) {
 			for (int pixelZ = 0; pixelZ < textureHeight; pixelZ++) {
-				int blockX = (int) Math.floor(minX + (pixelX + 0.5) * blocksPerPixel);
-				int blockZ = (int) Math.floor(minZ + (pixelZ + 0.5) * blocksPerPixel);
-				int color = MapWorldSampler.sampleColor(level, dimension, blockX, blockZ);
-				// sampleColor is ARGB; setPixel converts to ABGR for NativeImage.
-				image.setPixel(pixelX, pixelZ, color);
+				writeTexel(level, image, dimension, blocksPerPixel, minX, minZ, pixelX, pixelZ);
+			}
+		}
+	}
+
+	private void writeTexel(
+		net.minecraft.client.multiplayer.ClientLevel level,
+		NativeImage image,
+		ResourceKey<Level> dimension,
+		double blocksPerPixel,
+		double minX,
+		double minZ,
+		int pixelX,
+		int pixelZ
+	) {
+		int color = MapWorldSampler.sampleTexel(level, dimension, minX, minZ, blocksPerPixel, pixelX, pixelZ);
+		image.setPixel(pixelX, pixelZ, color);
+	}
+
+	private boolean tryScrollRebuild(
+		Minecraft client,
+		NativeImage image,
+		ResourceKey<Level> dimension,
+		double blocksPerPixel,
+		double minX,
+		double minZ
+	) {
+		if (!rasterValid || !dimension.equals(lastDimension) || Double.compare(blocksPerPixel, lastBlocksPerPixel) != 0) {
+			return false;
+		}
+
+		int deltaPx = (int) Math.round((minX - lastMinX) / blocksPerPixel);
+		int deltaPz = (int) Math.round((minZ - lastMinZ) / blocksPerPixel);
+		if (deltaPx == 0 && deltaPz == 0) {
+			return true;
+		}
+		if (Math.abs(deltaPx) >= textureWidth || Math.abs(deltaPz) >= textureHeight) {
+			return false;
+		}
+
+		scrollImage(image, deltaPx, deltaPz);
+		fillExposedStrips(client, image, dimension, blocksPerPixel, minX, minZ, deltaPx, deltaPz);
+		return true;
+	}
+
+	private static void scrollImage(NativeImage image, int deltaPx, int deltaPz) {
+		int width = image.getWidth();
+		int height = image.getHeight();
+
+		if (deltaPx != 0) {
+			NativeImage copy = new NativeImage(width, height, false);
+			for (int px = 0; px < width; px++) {
+				for (int pz = 0; pz < height; pz++) {
+					copy.setPixel(px, pz, image.getPixel(px, pz));
+				}
+			}
+			if (deltaPx > 0) {
+				for (int px = 0; px < width - deltaPx; px++) {
+					for (int pz = 0; pz < height; pz++) {
+						image.setPixel(px, pz, copy.getPixel(px + deltaPx, pz));
+					}
+				}
+			} else {
+				int shift = -deltaPx;
+				for (int px = shift; px < width; px++) {
+					for (int pz = 0; pz < height; pz++) {
+						image.setPixel(px, pz, copy.getPixel(px - shift, pz));
+					}
+				}
+			}
+			copy.close();
+		}
+
+		if (deltaPz != 0) {
+			NativeImage copy = new NativeImage(width, height, false);
+			for (int px = 0; px < width; px++) {
+				for (int pz = 0; pz < height; pz++) {
+					copy.setPixel(px, pz, image.getPixel(px, pz));
+				}
+			}
+			if (deltaPz > 0) {
+				for (int pz = 0; pz < height - deltaPz; pz++) {
+					for (int px = 0; px < width; px++) {
+						image.setPixel(px, pz, copy.getPixel(px, pz + deltaPz));
+					}
+				}
+			} else {
+				int shift = -deltaPz;
+				for (int pz = shift; pz < height; pz++) {
+					for (int px = 0; px < width; px++) {
+						image.setPixel(px, pz, copy.getPixel(px, pz - shift));
+					}
+				}
+			}
+			copy.close();
+		}
+	}
+
+	private void fillExposedStrips(
+		Minecraft client,
+		NativeImage image,
+		ResourceKey<Level> dimension,
+		double blocksPerPixel,
+		double minX,
+		double minZ,
+		int deltaPx,
+		int deltaPz
+	) {
+		var level = client.level;
+		if (deltaPx > 0) {
+			for (int px = textureWidth - deltaPx; px < textureWidth; px++) {
+				for (int pz = 0; pz < textureHeight; pz++) {
+					writeTexel(level, image, dimension, blocksPerPixel, minX, minZ, px, pz);
+				}
+			}
+		} else if (deltaPx < 0) {
+			for (int px = 0; px < -deltaPx; px++) {
+				for (int pz = 0; pz < textureHeight; pz++) {
+					writeTexel(level, image, dimension, blocksPerPixel, minX, minZ, px, pz);
+				}
 			}
 		}
 
-		texture.upload();
-		dirty = false;
+		if (deltaPz > 0) {
+			for (int pz = textureHeight - deltaPz; pz < textureHeight; pz++) {
+				for (int px = 0; px < textureWidth; px++) {
+					writeTexel(level, image, dimension, blocksPerPixel, minX, minZ, px, pz);
+				}
+			}
+		} else if (deltaPz < 0) {
+			for (int pz = 0; pz < -deltaPz; pz++) {
+				for (int px = 0; px < textureWidth; px++) {
+					writeTexel(level, image, dimension, blocksPerPixel, minX, minZ, px, pz);
+				}
+			}
+		}
 	}
 
-	private void ensureTexture(Minecraft client, int targetWidth, int targetHeight) {
+	private void storeRasterState(ResourceKey<Level> dimension, double blocksPerPixel, double minX, double minZ) {
+		lastDimension = dimension;
+		lastBlocksPerPixel = blocksPerPixel;
+		lastMinX = minX;
+		lastMinZ = minZ;
+		rasterValid = true;
+	}
+
+	private boolean ensureTexture(Minecraft client, int targetWidth, int targetHeight) {
 		if (texture != null && textureWidth == targetWidth && textureHeight == targetHeight) {
-			return;
+			return false;
 		}
 
 		if (texture != null) {
@@ -138,5 +380,9 @@ public final class TerrainMapRenderer {
 		texture = new DynamicTexture(() -> "PlayersMap " + textureId, image);
 		client.getTextureManager().register(textureId, texture);
 		dirty = true;
+		rasterValid = false;
+		slicing = false;
+		sliceIndex = 0;
+		return true;
 	}
 }
