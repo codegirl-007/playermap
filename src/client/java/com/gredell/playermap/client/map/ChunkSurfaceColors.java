@@ -1,7 +1,9 @@
 package com.gredell.playermap.client.map;
 
 import net.minecraft.core.BlockPos;
+import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.ChunkPos;
+import net.minecraft.world.level.Level;
 import net.minecraft.world.level.block.state.BlockState;
 import net.minecraft.world.level.chunk.LevelChunk;
 import net.minecraft.world.level.levelgen.Heightmap;
@@ -112,10 +114,43 @@ public final class ChunkSurfaceColors {
 		return (flags[index(worldX, worldZ)] & FLAG_WATER) != 0;
 	}
 
+	public static ChunkSurfaceSnapshot copySnapshot(ResourceKey<Level> dimension, int chunkX, int chunkZ) {
+		long key = ChunkPos.asLong(chunkX, chunkZ);
+		int[] colors = colorsByChunk.get(key);
+		if (colors == null) {
+			return null;
+		}
+		short[] heights = heightsByChunk.get(key);
+		byte[] flags = flagsByChunk.get(key);
+		if (heights == null || flags == null) {
+			return null;
+		}
+		return new ChunkSurfaceSnapshot(
+			chunkX,
+			chunkZ,
+			colors.clone(),
+			heights.clone(),
+			flags.clone(),
+			isExploredFrontier(dimension, chunkX, chunkZ)
+		);
+	}
+
+	public static ChunkSurfaceSnapshot snapshotFromChunk(LevelChunk chunk, ResourceKey<Level> dimension) {
+		capture(chunk);
+		return copySnapshot(dimension, chunk.getPos().x, chunk.getPos().z);
+	}
+
 	public static void clear() {
 		colorsByChunk.clear();
 		heightsByChunk.clear();
 		flagsByChunk.clear();
+	}
+
+	private static boolean isExploredFrontier(ResourceKey<Level> dimension, int cx, int cz) {
+		return !ExploredMapStorage.isExplored(dimension, cx - 1, cz)
+			|| !ExploredMapStorage.isExplored(dimension, cx + 1, cz)
+			|| !ExploredMapStorage.isExplored(dimension, cx, cz - 1)
+			|| !ExploredMapStorage.isExplored(dimension, cx, cz + 1);
 	}
 
 	private static void ensureCaptured(LevelChunk chunk) {

@@ -9,13 +9,17 @@ import net.minecraft.resources.Identifier;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
 
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+
 public final class TerrainMapRenderer {
-	private static final int FULL_REBUILD_SLICE_THRESHOLD = 12_000;
-	private static final long SLICE_NANOS_BUDGET_MINIMAP = 2_000_000L;
-	private static final long SLICE_NANOS_BUDGET_FULLSCREEN = 3_000_000L;
+	private static final int ASYNC_REBUILD_TEXEL_THRESHOLD = 12_000;
+	private static final int PLACEHOLDER_COLOR = 0xFF12151E;
 
 	private final Identifier textureId;
 	private final int maxTextureSize;
+	private final ExecutorService rasterExecutor = MapRasterExecutor.executor();
+
 	private DynamicTexture texture;
 	private int textureWidth;
 	private int textureHeight;
@@ -27,14 +31,8 @@ public final class TerrainMapRenderer {
 	private double lastMinX;
 	private double lastMinZ;
 
-	private boolean slicing;
-	private int sliceIndex;
-	private ResourceKey<Level> sliceDimension;
-	private double sliceCenterX;
-	private double sliceCenterZ;
-	private double sliceBlocksPerPixel;
-	private double sliceMinX;
-	private double sliceMinZ;
+	private volatile long rebuildGeneration;
+	private CompletableFuture<RasterJobResult> asyncRebuild;
 
 	public TerrainMapRenderer(Identifier textureId, int maxTextureSize) {
 		this.textureId = textureId;
@@ -42,12 +40,14 @@ public final class TerrainMapRenderer {
 	}
 
 	public void markDirty() {
+		rebuildGeneration++;
+		asyncRebuild = null;
 		dirty = true;
-		slicing = false;
-		sliceIndex = 0;
 	}
 
 	public void close(Minecraft client) {
+		rebuildGeneration++;
+		asyncRebuild = null;
 		if (texture != null) {
 			texture.close();
 			texture = null;
@@ -57,8 +57,6 @@ public final class TerrainMapRenderer {
 		textureHeight = 0;
 		dirty = true;
 		rasterValid = false;
-		slicing = false;
-		sliceIndex = 0;
 	}
 
 	public void draw(
@@ -123,8 +121,11 @@ public final class TerrainMapRenderer {
 			return;
 		}
 
-		if (slicing) {
-			advanceSlice(client, image);
+		if (tryFinishAsyncRebuild(image)) {
+			// Applied finished background raster this frame.
+		}
+
+		if (asyncRebuild != null && !asyncRebuild.isDone()) {
 			return;
 		}
 
@@ -134,17 +135,17 @@ public final class TerrainMapRenderer {
 		double minZ = viewCenterZ - halfSpanZ;
 
 		if (dirty) {
-			startFullRebuild(client, image, dimension, viewCenterX, viewCenterZ, blocksPerPixel, minX, minZ);
+			startFullRebuild(client, dimension, viewCenterX, viewCenterZ, blocksPerPixel, minX, minZ, image);
 			return;
 		}
 
 		if (!rasterValid || resized) {
-			startFullRebuild(client, image, dimension, viewCenterX, viewCenterZ, blocksPerPixel, minX, minZ);
+			startFullRebuild(client, dimension, viewCenterX, viewCenterZ, blocksPerPixel, minX, minZ, image);
 			return;
 		}
 
 		if (!dimension.equals(lastDimension) || Double.compare(blocksPerPixel, lastBlocksPerPixel) != 0) {
-			startFullRebuild(client, image, dimension, viewCenterX, viewCenterZ, blocksPerPixel, minX, minZ);
+			startFullRebuild(client, dimension, viewCenterX, viewCenterZ, blocksPerPixel, minX, minZ, image);
 			return;
 		}
 
@@ -152,7 +153,7 @@ public final class TerrainMapRenderer {
 			switch (tryScrollRebuild(client, image, dimension, blocksPerPixel, minX, minZ)) {
 				case SCROLLED -> texture.upload();
 				case NEEDS_FULL_REBUILD -> startFullRebuild(
-					client, image, dimension, viewCenterX, viewCenterZ, blocksPerPixel, minX, minZ
+					client, dimension, viewCenterX, viewCenterZ, blocksPerPixel, minX, minZ, image
 				);
 				case UNCHANGED -> {
 				}
@@ -160,95 +161,78 @@ public final class TerrainMapRenderer {
 		}
 	}
 
-	private enum ScrollOutcome {
-		UNCHANGED,
-		SCROLLED,
-		NEEDS_FULL_REBUILD
+	private boolean tryFinishAsyncRebuild(NativeImage image) {
+		if (asyncRebuild == null || !asyncRebuild.isDone()) {
+			return false;
+		}
+		RasterJobResult result = asyncRebuild.join();
+		asyncRebuild = null;
+		if (result == null || result.generation != rebuildGeneration) {
+			return false;
+		}
+		MapRasterEngine.writeToImage(image, result.pixels);
+		texture.upload();
+		dirty = false;
+		storeRasterState(result.dimension, result.blocksPerPixel, result.minX, result.minZ);
+		return true;
 	}
 
 	private void startFullRebuild(
 		Minecraft client,
-		NativeImage image,
 		ResourceKey<Level> dimension,
 		double viewCenterX,
 		double viewCenterZ,
 		double blocksPerPixel,
 		double minX,
-		double minZ
+		double minZ,
+		NativeImage image
 	) {
 		int texels = textureWidth * textureHeight;
-		if (texels > FULL_REBUILD_SLICE_THRESHOLD) {
-			slicing = true;
-			sliceIndex = 0;
-			sliceDimension = dimension;
-			sliceCenterX = viewCenterX;
-			sliceCenterZ = viewCenterZ;
-			sliceBlocksPerPixel = blocksPerPixel;
-			sliceMinX = minX;
-			sliceMinZ = minZ;
-			advanceSlice(client, image);
+		long jobGen = ++rebuildGeneration;
+		MapRasterContext context = MapRasterContext.capture(
+			client.level,
+			dimension,
+			blocksPerPixel,
+			minX,
+			minZ,
+			textureWidth,
+			textureHeight,
+			jobGen
+		);
+
+		if (texels > ASYNC_REBUILD_TEXEL_THRESHOLD) {
+			dirty = false;
+			long capturedGen = jobGen;
+			asyncRebuild = CompletableFuture.supplyAsync(
+				() -> {
+					int[] pixels = MapRasterEngine.raster(
+						context,
+						() -> rebuildGeneration == capturedGen ? capturedGen : -1L
+					);
+					if (pixels == null) {
+						return null;
+					}
+					return new RasterJobResult(capturedGen, pixels, dimension, blocksPerPixel, minX, minZ);
+				},
+				rasterExecutor
+			);
 			return;
 		}
 
-		fillFull(client, image, dimension, blocksPerPixel, minX, minZ);
+		int[] pixels = MapRasterEngine.raster(context, () -> jobGen);
+		if (pixels == null) {
+			return;
+		}
+		MapRasterEngine.writeToImage(image, pixels);
 		texture.upload();
 		dirty = false;
-		slicing = false;
 		storeRasterState(dimension, blocksPerPixel, minX, minZ);
 	}
 
-	private void advanceSlice(Minecraft client, NativeImage image) {
-		int texels = textureWidth * textureHeight;
-		long budget = texels > FULL_REBUILD_SLICE_THRESHOLD
-			? SLICE_NANOS_BUDGET_FULLSCREEN
-			: SLICE_NANOS_BUDGET_MINIMAP;
-		long deadline = System.nanoTime() + budget;
-		var level = client.level;
-		MapWorldSampler.RasterPass pass = MapWorldSampler.beginRaster(level, sliceDimension);
-		while (sliceIndex < texels && System.nanoTime() < deadline) {
-			int pixelX = sliceIndex % textureWidth;
-			int pixelZ = sliceIndex / textureWidth;
-			writeTexel(pass, image, sliceBlocksPerPixel, sliceMinX, sliceMinZ, pixelX, pixelZ);
-			sliceIndex++;
-		}
-
-		if (sliceIndex >= texels) {
-			texture.upload();
-			slicing = false;
-			dirty = false;
-			double halfSpanX = (textureWidth * sliceBlocksPerPixel) / 2.0;
-			double halfSpanZ = (textureHeight * sliceBlocksPerPixel) / 2.0;
-			storeRasterState(sliceDimension, sliceBlocksPerPixel, sliceCenterX - halfSpanX, sliceCenterZ - halfSpanZ);
-		}
-	}
-
-	private void fillFull(
-		Minecraft client,
-		NativeImage image,
-		ResourceKey<Level> dimension,
-		double blocksPerPixel,
-		double minX,
-		double minZ
-	) {
-		MapWorldSampler.RasterPass pass = MapWorldSampler.beginRaster(client.level, dimension);
-		for (int pixelX = 0; pixelX < textureWidth; pixelX++) {
-			for (int pixelZ = 0; pixelZ < textureHeight; pixelZ++) {
-				writeTexel(pass, image, blocksPerPixel, minX, minZ, pixelX, pixelZ);
-			}
-		}
-	}
-
-	private void writeTexel(
-		MapWorldSampler.RasterPass pass,
-		NativeImage image,
-		double blocksPerPixel,
-		double minX,
-		double minZ,
-		int pixelX,
-		int pixelZ
-	) {
-		int color = pass.sampleTexel(minX, minZ, blocksPerPixel, pixelX, pixelZ);
-		image.setPixel(pixelX, pixelZ, color);
+	private enum ScrollOutcome {
+		UNCHANGED,
+		SCROLLED,
+		NEEDS_FULL_REBUILD
 	}
 
 	private ScrollOutcome tryScrollRebuild(
@@ -272,8 +256,18 @@ public final class TerrainMapRenderer {
 			return ScrollOutcome.NEEDS_FULL_REBUILD;
 		}
 
-		scrollImage(image, deltaPx, deltaPz);
-		fillExposedStrips(client, image, dimension, blocksPerPixel, minX, minZ, deltaPx, deltaPz);
+		scrollImageInPlace(image, deltaPx, deltaPz);
+		MapRasterContext context = MapRasterContext.capture(
+			client.level,
+			dimension,
+			blocksPerPixel,
+			minX,
+			minZ,
+			textureWidth,
+			textureHeight,
+			rebuildGeneration
+		);
+		fillExposedStrips(context, image, deltaPx, deltaPz);
 		storeRasterState(
 			dimension,
 			blocksPerPixel,
@@ -284,26 +278,22 @@ public final class TerrainMapRenderer {
 	}
 
 	private void fillExposedStrips(
-		Minecraft client,
+		MapRasterContext context,
 		NativeImage image,
-		ResourceKey<Level> dimension,
-		double blocksPerPixel,
-		double minX,
-		double minZ,
 		int deltaPx,
 		int deltaPz
 	) {
-		MapWorldSampler.RasterPass pass = MapWorldSampler.beginRaster(client.level, dimension);
+		MapRasterEngine.RasterPass pass = new MapRasterEngine.RasterPass(context);
 		if (deltaPx > 0) {
 			for (int px = textureWidth - deltaPx; px < textureWidth; px++) {
 				for (int pz = 0; pz < textureHeight; pz++) {
-					writeTexel(pass, image, blocksPerPixel, minX, minZ, px, pz);
+					image.setPixel(px, pz, pass.sampleTexel(px, pz));
 				}
 			}
 		} else if (deltaPx < 0) {
 			for (int px = 0; px < -deltaPx; px++) {
 				for (int pz = 0; pz < textureHeight; pz++) {
-					writeTexel(pass, image, blocksPerPixel, minX, minZ, px, pz);
+					image.setPixel(px, pz, pass.sampleTexel(px, pz));
 				}
 			}
 		}
@@ -311,68 +301,50 @@ public final class TerrainMapRenderer {
 		if (deltaPz > 0) {
 			for (int pz = textureHeight - deltaPz; pz < textureHeight; pz++) {
 				for (int px = 0; px < textureWidth; px++) {
-					writeTexel(pass, image, blocksPerPixel, minX, minZ, px, pz);
+					image.setPixel(px, pz, pass.sampleTexel(px, pz));
 				}
 			}
 		} else if (deltaPz < 0) {
 			for (int pz = 0; pz < -deltaPz; pz++) {
 				for (int px = 0; px < textureWidth; px++) {
-					writeTexel(pass, image, blocksPerPixel, minX, minZ, px, pz);
+					image.setPixel(px, pz, pass.sampleTexel(px, pz));
 				}
 			}
 		}
 	}
 
-	private static void scrollImage(NativeImage image, int deltaPx, int deltaPz) {
+	private static void scrollImageInPlace(NativeImage image, int deltaPx, int deltaPz) {
 		int width = image.getWidth();
 		int height = image.getHeight();
 
-		if (deltaPx != 0) {
-			NativeImage copy = new NativeImage(width, height, false);
-			for (int px = 0; px < width; px++) {
-				for (int pz = 0; pz < height; pz++) {
-					copy.setPixel(px, pz, image.getPixel(px, pz));
-				}
-			}
-			if (deltaPx > 0) {
+		if (deltaPx > 0) {
+			for (int pz = 0; pz < height; pz++) {
 				for (int px = 0; px < width - deltaPx; px++) {
-					for (int pz = 0; pz < height; pz++) {
-						image.setPixel(px, pz, copy.getPixel(px + deltaPx, pz));
-					}
-				}
-			} else {
-				int shift = -deltaPx;
-				for (int px = shift; px < width; px++) {
-					for (int pz = 0; pz < height; pz++) {
-						image.setPixel(px, pz, copy.getPixel(px - shift, pz));
-					}
+					image.setPixel(px, pz, image.getPixel(px + deltaPx, pz));
 				}
 			}
-			copy.close();
+		} else if (deltaPx < 0) {
+			int shift = -deltaPx;
+			for (int pz = 0; pz < height; pz++) {
+				for (int px = width - shift - 1; px >= 0; px--) {
+					image.setPixel(px + shift, pz, image.getPixel(px, pz));
+				}
+			}
 		}
 
-		if (deltaPz != 0) {
-			NativeImage copy = new NativeImage(width, height, false);
-			for (int px = 0; px < width; px++) {
-				for (int pz = 0; pz < height; pz++) {
-					copy.setPixel(px, pz, image.getPixel(px, pz));
+		if (deltaPz > 0) {
+			for (int pz = 0; pz < height - deltaPz; pz++) {
+				for (int px = 0; px < width; px++) {
+					image.setPixel(px, pz, image.getPixel(px, pz + deltaPz));
 				}
 			}
-			if (deltaPz > 0) {
-				for (int pz = 0; pz < height - deltaPz; pz++) {
-					for (int px = 0; px < width; px++) {
-						image.setPixel(px, pz, copy.getPixel(px, pz + deltaPz));
-					}
-				}
-			} else {
-				int shift = -deltaPz;
-				for (int pz = shift; pz < height; pz++) {
-					for (int px = 0; px < width; px++) {
-						image.setPixel(px, pz, copy.getPixel(px, pz - shift));
-					}
+		} else if (deltaPz < 0) {
+			int shift = -deltaPz;
+			for (int pz = height - shift - 1; pz >= 0; pz--) {
+				for (int px = 0; px < width; px++) {
+					image.setPixel(px, pz + shift, image.getPixel(px, pz));
 				}
 			}
-			copy.close();
 		}
 	}
 
@@ -382,6 +354,14 @@ public final class TerrainMapRenderer {
 		lastMinX = minX;
 		lastMinZ = minZ;
 		rasterValid = true;
+	}
+
+	private void fillPlaceholder(NativeImage image) {
+		for (int pz = 0; pz < image.getHeight(); pz++) {
+			for (int px = 0; px < image.getWidth(); px++) {
+				image.setPixel(px, pz, PLACEHOLDER_COLOR);
+			}
+		}
 	}
 
 	private boolean ensureTexture(Minecraft client, int targetWidth, int targetHeight) {
@@ -398,12 +378,24 @@ public final class TerrainMapRenderer {
 		textureWidth = targetWidth;
 		textureHeight = targetHeight;
 		NativeImage image = new NativeImage(textureWidth, textureHeight, false);
+		fillPlaceholder(image);
 		texture = new DynamicTexture(() -> "PlayersMap " + textureId, image);
 		client.getTextureManager().register(textureId, texture);
+		texture.upload();
 		dirty = true;
 		rasterValid = false;
-		slicing = false;
-		sliceIndex = 0;
+		rebuildGeneration++;
+		asyncRebuild = null;
 		return true;
+	}
+
+	private record RasterJobResult(
+		long generation,
+		int[] pixels,
+		ResourceKey<Level> dimension,
+		double blocksPerPixel,
+		double minX,
+		double minZ
+	) {
 	}
 }
