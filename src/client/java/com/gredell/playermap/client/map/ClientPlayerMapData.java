@@ -11,6 +11,7 @@ import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 
 public final class ClientPlayerMapData {
@@ -25,6 +26,35 @@ public final class ClientPlayerMapData {
 
 	public static void clear() {
 		networkPlayers = List.of();
+	}
+
+	public static Optional<PlayerPosition> findByUuid(UUID uuid) {
+		PlayerPosition fromNetwork = null;
+		for (PlayerPosition position : networkPlayers) {
+			if (position.uuid().equals(uuid)) {
+				fromNetwork = position;
+			}
+		}
+
+		ClientLevel level = Minecraft.getInstance().level;
+		if (level != null) {
+			for (AbstractClientPlayer player : level.players()) {
+				if (player.getUUID().equals(uuid)) {
+					return Optional.of(
+						new PlayerPosition(
+							player.getUUID(),
+							player.getGameProfile().name(),
+							level.dimension(),
+							player.getX(),
+							player.getY(),
+							player.getZ()
+						)
+					);
+				}
+			}
+		}
+
+		return Optional.ofNullable(fromNetwork);
 	}
 
 	public static List<PlayerPosition> playersInDimension(ResourceKey<Level> dimension) {

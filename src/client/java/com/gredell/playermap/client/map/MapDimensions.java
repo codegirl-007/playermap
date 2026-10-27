@@ -1,5 +1,6 @@
 package com.gredell.playermap.client.map;
 
+import net.minecraft.client.Minecraft;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
@@ -40,5 +41,32 @@ public final class MapDimensions {
 
 	public static Component tabLabel(int hotkey, ResourceKey<Level> dimension) {
 		return Component.literal(hotkey + " · " + shortLabel(dimension));
+	}
+
+	/**
+	 * A dimension can be shown when it is the overworld, the player is standing in it, or cached terrain exists.
+	 */
+	public static boolean isMapAvailable(ResourceKey<Level> dimension, Level playerLevel) {
+		if (dimension.equals(Level.OVERWORLD)) {
+			return true;
+		}
+		if (playerLevel != null && playerLevel.dimension().equals(dimension)) {
+			return true;
+		}
+		return ChunkSurfaceColors.hasDataForDimension(dimension);
+	}
+
+	public static List<ResourceKey<Level>> availableLayers(Minecraft client) {
+		Level playerLevel = client.level;
+		return LAYERS.stream().filter(layer -> isMapAvailable(layer, playerLevel)).toList();
+	}
+
+	public static int hotkeyForDimension(ResourceKey<Level> dimension) {
+		for (int i = 0; i < LAYERS.size(); i++) {
+			if (LAYERS.get(i).equals(dimension)) {
+				return i + 1;
+			}
+		}
+		return -1;
 	}
 }
