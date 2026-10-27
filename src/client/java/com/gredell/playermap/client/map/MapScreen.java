@@ -328,14 +328,18 @@ public class MapScreen extends Screen implements MapMouseActions.Host {
 
 	@Override
 	public boolean isMapInteraction(final double mouseX, final double mouseY) {
+		final int tabCount = MapDimensions.availableLayers(minecraft).size();
+		final int tabStripBottom = TAB_INSET + TAB_HEIGHT + 4;
+		final int tabStripRight = TAB_INSET + (TAB_WIDTH + TAB_SPACING) * tabCount;
+		final boolean belowTabs = mouseY > tabStripBottom;
+		final boolean rightOfTabs = mouseX > tabStripRight;
 		if (isOverZoomControls(mouseX, mouseY)) {
 			return false;
 		}
-		final int tabCount = MapDimensions.availableLayers(minecraft).size();
 		if (tabCount <= 1) {
 			return true;
 		}
-		return mouseY > TAB_INSET + TAB_HEIGHT + 4 || mouseX > TAB_INSET + (TAB_WIDTH + TAB_SPACING) * tabCount;
+		return belowTabs || rightOfTabs;
 	}
 
 	@Override
