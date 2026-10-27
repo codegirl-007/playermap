@@ -6,6 +6,7 @@ import net.minecraft.resources.ResourceKey;
 import net.minecraft.world.level.Level;
 import org.lwjgl.glfw.GLFW;
 
+import java.util.Optional;
 import java.util.UUID;
 
 public final class MapMouseActions {
@@ -88,7 +89,7 @@ public final class MapMouseActions {
 		if (!host.isMapInteraction(event.x(), event.y())) {
 			return false;
 		}
-		final var hit = MapPlayerMarkers.findPlayerAt(
+		final Optional<PlayerPosition> hit = MapPlayerMarkers.findPlayerAt(
 			dimension,
 			viewCenterX,
 			viewCenterZ,
