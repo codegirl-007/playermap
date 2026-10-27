@@ -1,6 +1,6 @@
 package com.gredell.playermap.client.map;
 
-import com.gredell.playermap.client.PlayersMapClient;
+import com.gredell.playermap.client.keybindings.map.OpenMapKey;
 import com.gredell.playermap.PlayersMap;
 import net.minecraft.client.KeyMapping;
 import net.minecraft.client.gui.GuiGraphics;
@@ -149,14 +149,16 @@ public class MapScreen extends Screen {
 
 	@Override
 	public boolean keyPressed(KeyEvent event) {
-		if (event.key() == GLFW.GLFW_KEY_ESCAPE && !waypointContextButtons.isEmpty()) {
+		final boolean escapePressed = event.key() == GLFW.GLFW_KEY_ESCAPE;
+		final boolean waypointMenuOpen = !waypointContextButtons.isEmpty();
+		if (escapePressed && waypointMenuOpen) {
 			dismissWaypointMenu();
 			return true;
 		}
 
-		KeyMapping openMapKey = PlayersMapClient.getOpenMapKey();
+		final KeyMapping openMapKey = OpenMapKey.getKey();
 		if (openMapKey != null && openMapKey.matches(event)) {
-			PlayersMapClient.suppressOpenMapKey();
+			OpenMapKey.suppressOpen();
 			minecraft.setScreen(null);
 			return true;
 		}
