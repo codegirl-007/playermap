@@ -21,7 +21,7 @@ public final class ChunkSurfaceColors {
 	private static final short HEIGHT_MISSING = Short.MIN_VALUE;
 
 	private record CacheKey(ResourceKey<Level> dimension, long chunkPos) {
-		static CacheKey of(ResourceKey<Level> dimension, int chunkX, int chunkZ) {
+		static CacheKey of(final ResourceKey<Level> dimension, final int chunkX, final int chunkZ) {
 			return new CacheKey(dimension, ChunkPos.asLong(chunkX, chunkZ));
 		}
 	}
@@ -35,19 +35,19 @@ public final class ChunkSurfaceColors {
 	private ChunkSurfaceColors() {
 	}
 
-	public static void capture(LevelChunk chunk) {
-		ResourceKey<Level> dimension = chunk.getLevel().dimension();
-		int[] colors = new int[256];
-		short[] heights = new short[256];
-		byte[] flags = new byte[256];
-		BlockPos.MutableBlockPos mutable = new BlockPos.MutableBlockPos();
-		int minY = chunk.getMinY();
-		ChunkPos pos = chunk.getPos();
+	public static void capture(final LevelChunk chunk) {
+		final ResourceKey<Level> dimension = chunk.getLevel().dimension();
+		final int[] colors = new int[256];
+		final short[] heights = new short[256];
+		final byte[] flags = new byte[256];
+		final BlockPos.MutableBlockPos mutable = new BlockPos.MutableBlockPos();
+		final int minY = chunk.getMinY();
+		final ChunkPos pos = chunk.getPos();
 
 		for (int localX = 0; localX < 16; localX++) {
 			for (int localZ = 0; localZ < 16; localZ++) {
-				int worldX = pos.getMinBlockX() + localX;
-				int worldZ = pos.getMinBlockZ() + localZ;
+				final int worldX = pos.getMinBlockX() + localX;
+				final int worldZ = pos.getMinBlockZ() + localZ;
 				int y = chunk.getHeight(Heightmap.Types.MOTION_BLOCKING, localX, localZ);
 				mutable.set(worldX, y, worldZ);
 				BlockState state = chunk.getBlockState(mutable);
@@ -58,9 +58,9 @@ public final class ChunkSurfaceColors {
 					state = chunk.getBlockState(mutable);
 				}
 
-				MapColor mapColor = state.getMapColor(chunk, mutable);
-				int argb = mapColor.calculateARGBColor(MapColor.Brightness.NORMAL);
-				int index = localX + localZ * 16;
+				final MapColor mapColor = state.getMapColor(chunk, mutable);
+				final int argb = mapColor.calculateARGBColor(MapColor.Brightness.NORMAL);
+				final int index = localX + localZ * 16;
 				colors[index] = 0xFF000000 | (argb & 0x00FFFFFF);
 				heights[index] = (short) y;
 				if (!state.getFluidState().isEmpty() && state.getFluidState().is(Fluids.WATER)) {
@@ -69,7 +69,7 @@ public final class ChunkSurfaceColors {
 			}
 		}
 
-		CacheKey key = new CacheKey(dimension, pos.toLong());
+		final CacheKey key = new CacheKey(dimension, pos.toLong());
 		colorsByChunk.put(key, colors);
 		heightsByChunk.put(key, heights);
 		flagsByChunk.put(key, flags);
@@ -80,21 +80,25 @@ public final class ChunkSurfaceColors {
 		dimensionsWithData.add(dimension);
 	}
 
-	public static boolean hasDataForDimension(ResourceKey<Level> dimension) {
+	public static boolean hasDataForDimension(final ResourceKey<Level> dimension) {
 		return dimensionsWithData.contains(dimension);
 	}
 
-	public static ChunkSurfaceSnapshot getImmutableSnapshot(ResourceKey<Level> dimension, int chunkX, int chunkZ) {
+	public static ChunkSurfaceSnapshot getImmutableSnapshot(
+		final ResourceKey<Level> dimension,
+		final int chunkX,
+		final int chunkZ
+	) {
 		return immutableSnapshotByChunk.get(CacheKey.of(dimension, chunkX, chunkZ));
 	}
 
 	public static ChunkSurfaceSnapshot ensureImmutableSnapshot(
-		ClientLevel level,
-		ResourceKey<Level> dimension,
-		int chunkX,
-		int chunkZ
+		final ClientLevel level,
+		final ResourceKey<Level> dimension,
+		final int chunkX,
+		final int chunkZ
 	) {
-		ChunkSurfaceSnapshot existing = getImmutableSnapshot(dimension, chunkX, chunkZ);
+		final ChunkSurfaceSnapshot existing = getImmutableSnapshot(dimension, chunkX, chunkZ);
 		if (existing != null) {
 			return existing;
 		}
@@ -105,54 +109,72 @@ public final class ChunkSurfaceColors {
 		return getImmutableSnapshot(dimension, chunkX, chunkZ);
 	}
 
-	public static int getColor(LevelChunk chunk, int worldX, int worldZ) {
+	public static int getColor(final LevelChunk chunk, final int worldX, final int worldZ) {
 		ensureCaptured(chunk);
-		CacheKey key = new CacheKey(chunk.getLevel().dimension(), chunk.getPos().toLong());
-		int[] colors = colorsByChunk.get(key);
+		final CacheKey key = new CacheKey(chunk.getLevel().dimension(), chunk.getPos().toLong());
+		final int[] colors = colorsByChunk.get(key);
 		if (colors == null) {
 			return 0;
 		}
 		return colors[index(worldX, worldZ)];
 	}
 
-	public static short getHeight(LevelChunk chunk, int worldX, int worldZ) {
+	public static short getHeight(final LevelChunk chunk, final int worldX, final int worldZ) {
 		ensureCaptured(chunk);
-		CacheKey key = new CacheKey(chunk.getLevel().dimension(), chunk.getPos().toLong());
-		short[] heights = heightsByChunk.get(key);
+		final CacheKey key = new CacheKey(chunk.getLevel().dimension(), chunk.getPos().toLong());
+		final short[] heights = heightsByChunk.get(key);
 		if (heights == null) {
 			return HEIGHT_MISSING;
 		}
 		return heights[index(worldX, worldZ)];
 	}
 
-	public static boolean isWaterSurface(LevelChunk chunk, int worldX, int worldZ) {
+	public static boolean isWaterSurface(final LevelChunk chunk, final int worldX, final int worldZ) {
 		ensureCaptured(chunk);
-		CacheKey key = new CacheKey(chunk.getLevel().dimension(), chunk.getPos().toLong());
-		byte[] flags = flagsByChunk.get(key);
+		final CacheKey key = new CacheKey(chunk.getLevel().dimension(), chunk.getPos().toLong());
+		final byte[] flags = flagsByChunk.get(key);
 		if (flags == null) {
 			return false;
 		}
 		return (flags[index(worldX, worldZ)] & FLAG_WATER) != 0;
 	}
 
-	public static int getCachedColor(ResourceKey<Level> dimension, int chunkX, int chunkZ, int worldX, int worldZ) {
-		ChunkSurfaceSnapshot snapshot = getImmutableSnapshot(dimension, chunkX, chunkZ);
+	public static int getCachedColor(
+		final ResourceKey<Level> dimension,
+		final int chunkX,
+		final int chunkZ,
+		final int worldX,
+		final int worldZ
+	) {
+		final ChunkSurfaceSnapshot snapshot = getImmutableSnapshot(dimension, chunkX, chunkZ);
 		if (snapshot == null) {
 			return 0;
 		}
 		return snapshot.color(worldX, worldZ);
 	}
 
-	public static short getCachedHeight(ResourceKey<Level> dimension, int chunkX, int chunkZ, int worldX, int worldZ) {
-		ChunkSurfaceSnapshot snapshot = getImmutableSnapshot(dimension, chunkX, chunkZ);
+	public static short getCachedHeight(
+		final ResourceKey<Level> dimension,
+		final int chunkX,
+		final int chunkZ,
+		final int worldX,
+		final int worldZ
+	) {
+		final ChunkSurfaceSnapshot snapshot = getImmutableSnapshot(dimension, chunkX, chunkZ);
 		if (snapshot == null) {
 			return HEIGHT_MISSING;
 		}
 		return snapshot.height(worldX, worldZ);
 	}
 
-	public static boolean getCachedWater(ResourceKey<Level> dimension, int chunkX, int chunkZ, int worldX, int worldZ) {
-		ChunkSurfaceSnapshot snapshot = getImmutableSnapshot(dimension, chunkX, chunkZ);
+	public static boolean getCachedWater(
+		final ResourceKey<Level> dimension,
+		final int chunkX,
+		final int chunkZ,
+		final int worldX,
+		final int worldZ
+	) {
+		final ChunkSurfaceSnapshot snapshot = getImmutableSnapshot(dimension, chunkX, chunkZ);
 		if (snapshot == null) {
 			return false;
 		}
@@ -167,14 +189,14 @@ public final class ChunkSurfaceColors {
 		dimensionsWithData.clear();
 	}
 
-	private static void ensureCaptured(LevelChunk chunk) {
-		CacheKey key = new CacheKey(chunk.getLevel().dimension(), chunk.getPos().toLong());
+	private static void ensureCaptured(final LevelChunk chunk) {
+		final CacheKey key = new CacheKey(chunk.getLevel().dimension(), chunk.getPos().toLong());
 		if (!colorsByChunk.containsKey(key)) {
 			capture(chunk);
 		}
 	}
 
-	private static int index(int worldX, int worldZ) {
+	private static int index(final int worldX, final int worldZ) {
 		return (worldX & 15) + (worldZ & 15) * 16;
 	}
 }

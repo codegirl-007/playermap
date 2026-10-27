@@ -27,15 +27,15 @@ public final class MapRasterContext {
 	private final Map<Long, ChunkSurfaceSnapshot> snapshotsByChunk;
 
 	private MapRasterContext(
-		long jobGeneration,
-		ResourceKey<Level> dimension,
-		boolean overworld,
-		double blocksPerPixel,
-		double minX,
-		double minZ,
-		int width,
-		int height,
-		Map<Long, ChunkSurfaceSnapshot> snapshotsByChunk
+		final long jobGeneration,
+		final ResourceKey<Level> dimension,
+		final boolean overworld,
+		final double blocksPerPixel,
+		final double minX,
+		final double minZ,
+		final int width,
+		final int height,
+		final Map<Long, ChunkSurfaceSnapshot> snapshotsByChunk
 	) {
 		this.jobGeneration = jobGeneration;
 		this.dimension = dimension;
@@ -49,13 +49,13 @@ public final class MapRasterContext {
 	}
 
 	public static Prepare beginPrepare(
-		ResourceKey<Level> dimension,
-		double blocksPerPixel,
-		double minX,
-		double minZ,
-		int width,
-		int height,
-		long jobGeneration
+		final ResourceKey<Level> dimension,
+		final double blocksPerPixel,
+		final double minX,
+		final double minZ,
+		final int width,
+		final int height,
+		final long jobGeneration
 	) {
 		return new Prepare(dimension, blocksPerPixel, minX, minZ, width, height, jobGeneration);
 	}
@@ -74,13 +74,13 @@ public final class MapRasterContext {
 		private int resolveIndex;
 
 		private Prepare(
-			ResourceKey<Level> dimension,
-			double blocksPerPixel,
-			double minX,
-			double minZ,
-			int width,
-			int height,
-			long jobGeneration
+			final ResourceKey<Level> dimension,
+			final double blocksPerPixel,
+			final double minX,
+			final double minZ,
+			final int width,
+			final int height,
+			final long jobGeneration
 		) {
 			this.dimension = dimension;
 			this.overworld = dimension.equals(Level.OVERWORLD);
@@ -91,12 +91,12 @@ public final class MapRasterContext {
 			this.height = height;
 			this.jobGeneration = jobGeneration;
 
-			double maxX = minX + width * blocksPerPixel;
-			double maxZ = minZ + height * blocksPerPixel;
-			int minChunkX = floorDiv(minX, 16) - 1;
-			int maxChunkX = floorDiv(maxX, 16) + 1;
-			int minChunkZ = floorDiv(minZ, 16) - 1;
-			int maxChunkZ = floorDiv(maxZ, 16) + 1;
+			final double maxX = minX + width * blocksPerPixel;
+			final double maxZ = minZ + height * blocksPerPixel;
+			final int minChunkX = floorDiv(minX, 16) - 1;
+			final int maxChunkX = floorDiv(maxX, 16) + 1;
+			final int minChunkZ = floorDiv(minZ, 16) - 1;
+			final int maxChunkZ = floorDiv(maxZ, 16) + 1;
 
 			this.resolveQueue = new ArrayList<>();
 			for (int cx = minChunkX; cx <= maxChunkX; cx++) {
@@ -118,13 +118,13 @@ public final class MapRasterContext {
 			return Math.max(0, resolveQueue.size() - resolveIndex);
 		}
 
-		public void advanceWithinBudget(ClientLevel level, long deadlineNanos) {
-			boolean liveDimension = level != null && level.dimension().equals(dimension);
+		public void advanceWithinBudget(final ClientLevel level, final long deadlineNanos) {
+			final boolean liveDimension = level != null && level.dimension().equals(dimension);
 			while (resolveIndex < resolveQueue.size() && MapFrameBudget.hasTimeRemaining(deadlineNanos)) {
-				long key = resolveQueue.get(resolveIndex++);
-				int cx = ChunkPos.getX(key);
-				int cz = ChunkPos.getZ(key);
-				long start = System.nanoTime();
+				final long key = resolveQueue.get(resolveIndex++);
+				final int cx = ChunkPos.getX(key);
+				final int cz = ChunkPos.getZ(key);
+				final long start = System.nanoTime();
 				ChunkSurfaceSnapshot snapshot = ChunkSurfaceColors.getImmutableSnapshot(dimension, cx, cz);
 				boolean captured = false;
 				if (snapshot == null && liveDimension) {
@@ -189,11 +189,11 @@ public final class MapRasterContext {
 		return MISSING_DATA_COLOR;
 	}
 
-	ChunkSurfaceSnapshot snapshot(int chunkX, int chunkZ) {
+	ChunkSurfaceSnapshot snapshot(final int chunkX, final int chunkZ) {
 		return snapshotsByChunk.get(ChunkPos.asLong(chunkX, chunkZ));
 	}
 
-	private static int floorDiv(double value, int divisor) {
+	private static int floorDiv(final double value, final int divisor) {
 		return (int) Math.floor(value / divisor);
 	}
 }

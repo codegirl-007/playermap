@@ -12,7 +12,7 @@ public final class PlayerWaypoint {
 	private PlayerWaypoint() {
 	}
 
-	public static void set(PlayerPosition player) {
+	public static void set(final PlayerPosition player) {
 		targetUuid = player.uuid();
 		targetName = player.name();
 	}
@@ -26,7 +26,7 @@ public final class PlayerWaypoint {
 		return targetUuid != null;
 	}
 
-	public static boolean targets(UUID uuid) {
+	public static boolean targets(final UUID uuid) {
 		return targetUuid != null && targetUuid.equals(uuid);
 	}
 

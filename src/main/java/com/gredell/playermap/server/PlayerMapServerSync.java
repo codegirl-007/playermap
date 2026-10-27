@@ -22,13 +22,13 @@ public final class PlayerMapServerSync {
 		ServerTickEvents.END_SERVER_TICK.register(PlayerMapServerSync::onEndServerTick);
 	}
 
-	private static void onEndServerTick(MinecraftServer server) {
+	private static void onEndServerTick(final MinecraftServer server) {
 		if (server.getTickCount() % SYNC_INTERVAL_TICKS != 0) {
 			return;
 		}
 
-		List<PlayerPosition> positions = new ArrayList<>();
-		for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+		final List<PlayerPosition> positions = new ArrayList<>();
+		for (final ServerPlayer player : server.getPlayerList().getPlayers()) {
 			positions.add(
 				new PlayerPosition(
 					player.getUUID(),
@@ -41,8 +41,8 @@ public final class PlayerMapServerSync {
 			);
 		}
 
-		PlayerPositionsPayload payload = new PlayerPositionsPayload(positions);
-		for (ServerPlayer player : server.getPlayerList().getPlayers()) {
+		final PlayerPositionsPayload payload = new PlayerPositionsPayload(positions);
+		for (final ServerPlayer player : server.getPlayerList().getPlayers()) {
 			ServerPlayNetworking.send(player, payload);
 		}
 	}

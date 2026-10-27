@@ -20,7 +20,7 @@ public final class ClientPlayerMapData {
 	private ClientPlayerMapData() {
 	}
 
-	public static void updateFromNetwork(List<PlayerPosition> players) {
+	public static void updateFromNetwork(final List<PlayerPosition> players) {
 		networkPlayers = List.copyOf(players);
 	}
 
@@ -28,17 +28,17 @@ public final class ClientPlayerMapData {
 		networkPlayers = List.of();
 	}
 
-	public static Optional<PlayerPosition> findByUuid(UUID uuid) {
+	public static Optional<PlayerPosition> findByUuid(final UUID uuid) {
 		PlayerPosition fromNetwork = null;
-		for (PlayerPosition position : networkPlayers) {
+		for (final PlayerPosition position : networkPlayers) {
 			if (position.uuid().equals(uuid)) {
 				fromNetwork = position;
 			}
 		}
 
-		ClientLevel level = Minecraft.getInstance().level;
+		final ClientLevel level = Minecraft.getInstance().level;
 		if (level != null) {
-			for (AbstractClientPlayer player : level.players()) {
+			for (final AbstractClientPlayer player : level.players()) {
 				if (player.getUUID().equals(uuid)) {
 					return Optional.of(
 						new PlayerPosition(
@@ -57,18 +57,18 @@ public final class ClientPlayerMapData {
 		return Optional.ofNullable(fromNetwork);
 	}
 
-	public static List<PlayerPosition> playersInDimension(ResourceKey<Level> dimension) {
-		Map<UUID, PlayerPosition> merged = new LinkedHashMap<>();
+	public static List<PlayerPosition> playersInDimension(final ResourceKey<Level> dimension) {
+		final Map<UUID, PlayerPosition> merged = new LinkedHashMap<>();
 
-		for (PlayerPosition position : networkPlayers) {
+		for (final PlayerPosition position : networkPlayers) {
 			if (position.dimension().equals(dimension)) {
 				merged.put(position.uuid(), position);
 			}
 		}
 
-		ClientLevel level = Minecraft.getInstance().level;
+		final ClientLevel level = Minecraft.getInstance().level;
 		if (level != null && level.dimension().equals(dimension)) {
-			for (AbstractClientPlayer player : level.players()) {
+			for (final AbstractClientPlayer player : level.players()) {
 				merged.put(
 					player.getUUID(),
 					new PlayerPosition(

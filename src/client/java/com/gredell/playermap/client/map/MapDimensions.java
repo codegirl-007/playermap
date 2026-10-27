@@ -13,7 +13,7 @@ public final class MapDimensions {
 	private MapDimensions() {
 	}
 
-	public static Component label(ResourceKey<Level> dimension) {
+	public static Component label(final ResourceKey<Level> dimension) {
 		if (dimension.equals(Level.OVERWORLD)) {
 			return Component.literal("Overworld");
 		}
@@ -26,7 +26,7 @@ public final class MapDimensions {
 		return Component.literal(dimension.identifier().toString());
 	}
 
-	public static String shortLabel(ResourceKey<Level> dimension) {
+	public static String shortLabel(final ResourceKey<Level> dimension) {
 		if (dimension.equals(Level.OVERWORLD)) {
 			return "O";
 		}
@@ -39,14 +39,14 @@ public final class MapDimensions {
 		return "?";
 	}
 
-	public static Component tabLabel(int hotkey, ResourceKey<Level> dimension) {
+	public static Component tabLabel(final int hotkey, final ResourceKey<Level> dimension) {
 		return Component.literal(hotkey + " · " + shortLabel(dimension));
 	}
 
 	/**
 	 * A dimension can be shown when it is the overworld, the player is standing in it, or cached terrain exists.
 	 */
-	public static boolean isMapAvailable(ResourceKey<Level> dimension, Level playerLevel) {
+	public static boolean isMapAvailable(final ResourceKey<Level> dimension, final Level playerLevel) {
 		if (dimension.equals(Level.OVERWORLD)) {
 			return true;
 		}
@@ -56,12 +56,12 @@ public final class MapDimensions {
 		return ChunkSurfaceColors.hasDataForDimension(dimension);
 	}
 
-	public static List<ResourceKey<Level>> availableLayers(Minecraft client) {
-		Level playerLevel = client.level;
-		return LAYERS.stream().filter(layer -> isMapAvailable(layer, playerLevel)).toList();
+	public static List<ResourceKey<Level>> availableLayers(final Minecraft client) {
+		final Level playerLevel = client.level;
+		return LAYERS.stream().filter((final ResourceKey<Level> layer) -> isMapAvailable(layer, playerLevel)).toList();
 	}
 
-	public static int hotkeyForDimension(ResourceKey<Level> dimension) {
+	public static int hotkeyForDimension(final ResourceKey<Level> dimension) {
 		for (int i = 0; i < LAYERS.size(); i++) {
 			if (LAYERS.get(i).equals(dimension)) {
 				return i + 1;

@@ -7,23 +7,23 @@ public final class MapColorUtil {
 	private MapColorUtil() {
 	}
 
-	public static int adjustForReadability(int argb) {
-		int a = (argb >> 24) & 0xFF;
-		int r = (argb >> 16) & 0xFF;
-		int g = (argb >> 8) & 0xFF;
-		int b = argb & 0xFF;
+	public static int adjustForReadability(final int argb) {
+		final int a = (argb >> 24) & 0xFF;
+		final int r = (argb >> 16) & 0xFF;
+		final int g = (argb >> 8) & 0xFF;
+		final int b = argb & 0xFF;
 
-		float rf = r / 255.0F;
-		float gf = g / 255.0F;
-		float bf = b / 255.0F;
+		final float rf = r / 255.0F;
+		final float gf = g / 255.0F;
+		final float bf = b / 255.0F;
 
-		float max = Math.max(rf, Math.max(gf, bf));
-		float min = Math.min(rf, Math.min(gf, bf));
-		float delta = max - min;
+		final float max = Math.max(rf, Math.max(gf, bf));
+		final float min = Math.min(rf, Math.min(gf, bf));
+		final float delta = max - min;
 		if (delta < 0.02F) {
-			float gray = (rf + gf + bf) / 3.0F;
-			float adjusted = gray + (gray - 0.5F) * CONTRAST;
-			int channel = clampChannel(adjusted);
+			final float gray = (rf + gf + bf) / 3.0F;
+			final float adjusted = gray + (gray - 0.5F) * CONTRAST;
+			final int channel = clampChannel(adjusted);
 			return (a << 24) | (channel << 16) | (channel << 8) | channel;
 		}
 
@@ -33,7 +33,7 @@ public final class MapColorUtil {
 		l = l + (l - 0.5F) * CONTRAST;
 		l = Math.max(0.0F, Math.min(1.0F, l));
 
-		float c = (1.0F - Math.abs(2.0F * l - 1.0F)) * s;
+		final float c = (1.0F - Math.abs(2.0F * l - 1.0F)) * s;
 		float hp = (rf - gf) / delta;
 		if (Float.isNaN(hp)) {
 			hp = 0.0F;
@@ -47,11 +47,11 @@ public final class MapColorUtil {
 			hp += 360.0F;
 		}
 
-		float x = c * (1.0F - Math.abs((hp / 60.0F) % 2.0F - 1.0F));
-		float m = l - c / 2.0F;
-		float rf2;
-		float gf2;
-		float bf2;
+		final float x = c * (1.0F - Math.abs((hp / 60.0F) % 2.0F - 1.0F));
+		final float m = l - c / 2.0F;
+		final float rf2;
+		final float gf2;
+		final float bf2;
 		if (hp < 60.0F) {
 			rf2 = c;
 			gf2 = x;
@@ -84,29 +84,26 @@ public final class MapColorUtil {
 			| clampChannel(bf2 + m);
 	}
 
-	public static int tintWater(int argb, boolean water) {
+	public static int tintWater(final int argb, final boolean water) {
 		if (!water) {
 			return argb;
 		}
-		int a = (argb >> 24) & 0xFF;
-		int r = (argb >> 16) & 0xFF;
-		int g = (argb >> 8) & 0xFF;
-		int b = argb & 0xFF;
-		r = (int) (r * 0.72F);
-		g = (int) (g * 0.82F);
-		b = Math.min(255, (int) (b * 1.08F + 12));
+		final int a = (argb >> 24) & 0xFF;
+		final int r = (int) (((argb >> 16) & 0xFF) * 0.72F);
+		final int g = (int) (((argb >> 8) & 0xFF) * 0.82F);
+		final int b = Math.min(255, (int) ((argb & 0xFF) * 1.08F + 12));
 		return (a << 24) | (r << 16) | (g << 8) | b;
 	}
 
-	public static int darken(int argb, float factor) {
-		int a = (argb >> 24) & 0xFF;
-		int r = clampChannel(((argb >> 16) & 0xFF) * factor / 255.0F);
-		int g = clampChannel(((argb >> 8) & 0xFF) * factor / 255.0F);
-		int b = clampChannel((argb & 0xFF) * factor / 255.0F);
+	public static int darken(final int argb, final float factor) {
+		final int a = (argb >> 24) & 0xFF;
+		final int r = clampChannel(((argb >> 16) & 0xFF) * factor / 255.0F);
+		final int g = clampChannel(((argb >> 8) & 0xFF) * factor / 255.0F);
+		final int b = clampChannel((argb & 0xFF) * factor / 255.0F);
 		return (a << 24) | (r << 16) | (g << 8) | b;
 	}
 
-	private static int clampChannel(float value) {
+	private static int clampChannel(final float value) {
 		return Math.max(0, Math.min(255, Math.round(value * 255.0F)));
 	}
 }

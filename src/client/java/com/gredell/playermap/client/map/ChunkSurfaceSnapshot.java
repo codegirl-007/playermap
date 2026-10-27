@@ -11,7 +11,13 @@ public final class ChunkSurfaceSnapshot {
 	private final short[] heights;
 	private final byte[] flags;
 
-	ChunkSurfaceSnapshot(int chunkX, int chunkZ, int[] colors, short[] heights, byte[] flags) {
+	ChunkSurfaceSnapshot(
+		final int chunkX,
+		final int chunkZ,
+		final int[] colors,
+		final short[] heights,
+		final byte[] flags
+	) {
 		this.chunkX = chunkX;
 		this.chunkZ = chunkZ;
 		this.colors = colors;
@@ -31,19 +37,19 @@ public final class ChunkSurfaceSnapshot {
 		return net.minecraft.world.level.ChunkPos.asLong(chunkX, chunkZ);
 	}
 
-	public int color(int worldX, int worldZ) {
+	public int color(final int worldX, final int worldZ) {
 		return colors[index(worldX, worldZ)];
 	}
 
-	public short height(int worldX, int worldZ) {
+	public short height(final int worldX, final int worldZ) {
 		return heights[index(worldX, worldZ)];
 	}
 
-	public boolean water(int worldX, int worldZ) {
+	public boolean water(final int worldX, final int worldZ) {
 		return (flags[index(worldX, worldZ)] & ChunkSurfaceColors.FLAG_WATER) != 0;
 	}
 
-	private static int index(int worldX, int worldZ) {
+	private static int index(final int worldX, final int worldZ) {
 		return (worldX & 15) + (worldZ & 15) * 16;
 	}
 }

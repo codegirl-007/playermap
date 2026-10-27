@@ -11,15 +11,15 @@ import java.util.UUID;
 
 public final class MapMouseActions {
 	public interface Host {
-		boolean isMapInteraction(double mouseX, double mouseY);
+		boolean isMapInteraction(final double mouseX, final double mouseY);
 
 		void dismissWaypointMenu();
 
-		void showWaypointMenu(PlayerPosition player, double mouseX, double mouseY);
+		void showWaypointMenu(final PlayerPosition player, final double mouseX, final double mouseY);
 
 		void beginDragPan();
 
-		void panByMouseDelta(double lastMouseX, double lastMouseY, double mouseX, double mouseY);
+		void panByMouseDelta(final double lastMouseX, final double lastMouseY, final double mouseX, final double mouseY);
 
 		void zoomIn();
 

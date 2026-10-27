@@ -4,6 +4,7 @@ import com.gredell.playermap.client.map.MapScreen;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientTickEvents;
 import net.fabricmc.fabric.api.client.keybinding.v1.KeyBindingHelper;
 import net.minecraft.client.KeyMapping;
+import net.minecraft.client.Minecraft;
 import org.lwjgl.glfw.GLFW;
 
 public final class OpenMapKey {
@@ -22,7 +23,7 @@ public final class OpenMapKey {
 			)
 		);
 
-		ClientTickEvents.END_CLIENT_TICK.register(client -> {
+		ClientTickEvents.END_CLIENT_TICK.register((final Minecraft client) -> {
 			if (suppressOpenTicks > 0) {
 				suppressOpenTicks--;
 			}

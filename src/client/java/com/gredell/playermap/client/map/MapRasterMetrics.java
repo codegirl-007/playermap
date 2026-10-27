@@ -20,7 +20,7 @@ public final class MapRasterMetrics {
 	private MapRasterMetrics() {
 	}
 
-	public static void record(long pixels, long totalNanos, long sampleNanos) {
+	public static void record(final long pixels, final long totalNanos, final long sampleNanos) {
 		LAST_PIXELS.set(pixels);
 		LAST_TOTAL_NANOS.set(totalNanos);
 		LAST_SAMPLE_NANOS.set(sampleNanos);
@@ -49,7 +49,7 @@ public final class MapRasterMetrics {
 		return LAST_PIXELS.get();
 	}
 
-	public static void recordApply(long texels, long copyNanos, long uploadNanos) {
+	public static void recordApply(final long texels, final long copyNanos, final long uploadNanos) {
 		LAST_COPY_NANOS.set(copyNanos);
 		LAST_UPLOAD_NANOS.set(uploadNanos);
 		if (texels > 0) {
@@ -71,22 +71,22 @@ public final class MapRasterMetrics {
 		);
 	}
 
-	public static boolean preferStagedUpload(int texels) {
-		long estimatedUpload = estimateUploadNanos(texels);
-		long estimatedCopy = estimateCopyNanos(texels);
+	public static boolean preferStagedUpload(final int texels) {
+		final long estimatedUpload = estimateUploadNanos(texels);
+		final long estimatedCopy = estimateCopyNanos(texels);
 		if (estimatedUpload > MapFrameBudget.frameBudgetNanos() / 3) {
 			return true;
 		}
 		return estimatedUpload > estimatedCopy * 2 && estimatedUpload > 500_000L;
 	}
 
-	public static long estimateCopyNanos(int texels) {
-		double perTexel = emaCopyNanosPerTexel == 0 ? DEFAULT_COPY_NANOS_PER_TEXEL : emaCopyNanosPerTexel;
+	public static long estimateCopyNanos(final int texels) {
+		final double perTexel = emaCopyNanosPerTexel == 0 ? DEFAULT_COPY_NANOS_PER_TEXEL : emaCopyNanosPerTexel;
 		return (long) (texels * perTexel);
 	}
 
-	public static long estimateUploadNanos(int texels) {
-		double perTexel = emaUploadNanosPerTexel == 0 ? DEFAULT_UPLOAD_NANOS_PER_TEXEL : emaUploadNanosPerTexel;
+	public static long estimateUploadNanos(final int texels) {
+		final double perTexel = emaUploadNanosPerTexel == 0 ? DEFAULT_UPLOAD_NANOS_PER_TEXEL : emaUploadNanosPerTexel;
 		return (long) (texels * perTexel);
 	}
 
@@ -94,7 +94,7 @@ public final class MapRasterMetrics {
 		BASELINE_TOTAL_NANOS.set(0);
 	}
 
-	private static double ema(double previous, double sample) {
+	private static double ema(final double previous, final double sample) {
 		return previous * 0.85 + sample * 0.15;
 	}
 }
