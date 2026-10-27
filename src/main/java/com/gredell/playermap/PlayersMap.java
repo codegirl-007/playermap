@@ -16,7 +16,7 @@ public class PlayersMap implements ModInitializer {
 		LOGGER.info("PlayersMap initialized");
 	}
 
-	public static Identifier id(String path) {
+	public static Identifier id(final String path) {
 		return Identifier.fromNamespaceAndPath(MOD_ID, path);
 	}
 }

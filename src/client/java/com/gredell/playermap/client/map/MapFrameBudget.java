@@ -26,18 +26,18 @@ public final class MapFrameBudget {
 		return System.nanoTime() + FRAME_BUDGET_NANOS;
 	}
 
-	public static boolean hasTimeRemaining(long deadlineNanos) {
+	public static boolean hasTimeRemaining(final long deadlineNanos) {
 		return System.nanoTime() < deadlineNanos;
 	}
 
-	public static void recordRaster(long texels, long totalNanos) {
+	public static void recordRaster(final long texels, final long totalNanos) {
 		if (texels <= 0 || totalNanos <= 0) {
 			return;
 		}
 		emaNanosPerTexel = ema(emaNanosPerTexel, (double) totalNanos / texels);
 	}
 
-	public static void recordChunkResolve(boolean liveCapture, long nanos) {
+	public static void recordChunkResolve(final boolean liveCapture, final long nanos) {
 		if (liveCapture) {
 			emaCaptureNanos = ema(emaCaptureNanos, nanos);
 		} else {
@@ -45,7 +45,7 @@ public final class MapFrameBudget {
 		}
 	}
 
-	public static long estimateSyncRasterNanos(int texels) {
+	public static long estimateSyncRasterNanos(final int texels) {
 		if (texels <= 0) {
 			return 0;
 		}
@@ -56,7 +56,7 @@ public final class MapFrameBudget {
 	 * Offload raster when measured per-texel cost would exceed the sync frame budget.
 	 * Small, warm-cache maps typically stay on the main thread.
 	 */
-	public static boolean shouldRasterOnWorker(int texels) {
+	public static boolean shouldRasterOnWorker(final int texels) {
 		return estimateSyncRasterNanos(texels) > SYNC_RASTER_MAX_NANOS;
 	}
 
@@ -68,7 +68,7 @@ public final class MapFrameBudget {
 		return emaCaptureNanos;
 	}
 
-	private static double ema(double previous, double sample) {
+	private static double ema(final double previous, final double sample) {
 		return previous * 0.85 + sample * 0.15;
 	}
 }

@@ -15,6 +15,10 @@ import net.fabricmc.api.ClientModInitializer;
 import net.fabricmc.fabric.api.client.event.lifecycle.v1.ClientChunkEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayConnectionEvents;
 import net.fabricmc.fabric.api.client.networking.v1.ClientPlayNetworking;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.multiplayer.ClientLevel;
+import net.minecraft.client.multiplayer.ClientPacketListener;
+import net.minecraft.world.level.chunk.LevelChunk;
 
 public class PlayersMapClient implements ClientModInitializer {
 	@Override
@@ -26,18 +30,21 @@ public class PlayersMapClient implements ClientModInitializer {
 		ToggleMinimapKey.register();
 		ClearWaypointKey.register();
 
-		ClientPlayNetworking.registerGlobalReceiver(PlayerPositionsPayload.TYPE, (payload, context) -> {
-			ClientPlayerMapData.updateFromNetwork(payload.players());
-		});
+		ClientPlayNetworking.registerGlobalReceiver(
+			PlayerPositionsPayload.TYPE,
+			(final PlayerPositionsPayload payload, final ClientPlayNetworking.Context context) -> {
+				ClientPlayerMapData.updateFromNetwork(payload.players());
+			}
+		);
 
-		ClientPlayConnectionEvents.DISCONNECT.register((handler, client) -> {
+		ClientPlayConnectionEvents.DISCONNECT.register((final ClientPacketListener handler, final Minecraft client) -> {
 			ClientPlayerMapData.clear();
 			PlayerWaypoint.clear();
 			ChunkSurfaceColors.clear();
 			MapScreen.releaseSharedRenderer(client);
 		});
 
-		ClientChunkEvents.CHUNK_LOAD.register((world, chunk) -> {
+		ClientChunkEvents.CHUNK_LOAD.register((final ClientLevel world, final LevelChunk chunk) -> {
 			// a column just arrived, call capture to update the colors
 			ChunkSurfaceColors.capture(chunk);
 

@@ -14,8 +14,8 @@ public final class MapTextureUpload {
 	private MapTextureUpload() {
 	}
 
-	public static long uploadFull(DynamicTexture texture) {
-		long start = System.nanoTime();
+	public static long uploadFull(final DynamicTexture texture) {
+		final long start = System.nanoTime();
 		texture.upload();
 		return System.nanoTime() - start;
 	}
@@ -30,15 +30,15 @@ public final class MapTextureUpload {
 	 * @param height   band height in texels
 	 */
 	public static long uploadBand(
-		DynamicTexture texture,
-		NativeImage image,
-		int mipLevel,
-		int destY,
-		int srcY,
-		int width,
-		int height
+		final DynamicTexture texture,
+		final NativeImage image,
+		final int mipLevel,
+		final int destY,
+		final int srcY,
+		final int width,
+		final int height
 	) {
-		long start = System.nanoTime();
+		final long start = System.nanoTime();
 		// Parameter order matches SpriteContents.uploadFirstFrame: mip, layer, destX, destY, width, height, srcX, srcY.
 		RenderSystem.getDevice()
 			.createCommandEncoder()
@@ -57,15 +57,15 @@ public final class MapTextureUpload {
 		return System.nanoTime() - start;
 	}
 
-	public static int stagedBandRows(int textureHeight) {
-		int rows = DEFAULT_STAGED_BAND_ROWS;
+	public static int stagedBandRows(final int textureHeight) {
+		final int rows = DEFAULT_STAGED_BAND_ROWS;
 		if (textureHeight <= 128) {
 			return textureHeight;
 		}
 		return Math.min(rows, Math.max(32, textureHeight / 8));
 	}
 
-	public static int bandsForHeight(int textureHeight, int bandRows) {
+	public static int bandsForHeight(final int textureHeight, final int bandRows) {
 		return (textureHeight + bandRows - 1) / bandRows;
 	}
 }

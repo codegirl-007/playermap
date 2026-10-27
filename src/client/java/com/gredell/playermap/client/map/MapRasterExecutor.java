@@ -7,8 +7,8 @@ import java.util.concurrent.ThreadFactory;
 final class MapRasterExecutor {
 	private static final ExecutorService EXECUTOR = Executors.newSingleThreadExecutor(new ThreadFactory() {
 		@Override
-		public Thread newThread(Runnable runnable) {
-			Thread thread = new Thread(runnable, "playersmap-raster");
+		public Thread newThread(final Runnable runnable) {
+			final Thread thread = new Thread(runnable, "playersmap-raster");
 			thread.setDaemon(true);
 			return thread;
 		}

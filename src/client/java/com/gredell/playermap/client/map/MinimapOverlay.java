@@ -42,8 +42,8 @@ public final class MinimapOverlay {
 		renderer.markDirty();
 	}
 
-	private static void render(GuiGraphics graphics, net.minecraft.client.DeltaTracker tickCounter) {
-		Minecraft client = Minecraft.getInstance();
+	private static void render(final GuiGraphics graphics, final net.minecraft.client.DeltaTracker tickCounter) {
+		final Minecraft client = Minecraft.getInstance();
 		if (!enabled || client.player == null || client.level == null || client.options.hideGui) {
 			return;
 		}
@@ -51,18 +51,18 @@ public final class MinimapOverlay {
 			return;
 		}
 
-		int left = graphics.guiWidth() - MINIMAP_SIZE - MARGIN;
-		int top = MARGIN;
-		var dimension = client.level.dimension();
-		double centerX = client.player.getX();
-		double centerZ = client.player.getZ();
+		final int left = graphics.guiWidth() - MINIMAP_SIZE - MARGIN;
+		final int top = MARGIN;
+		final ResourceKey<Level> dimension = client.level.dimension();
+		final double centerX = client.player.getX();
+		final double centerZ = client.player.getZ();
 
 		ticksSinceRaster++;
-		boolean firstRaster = Double.isNaN(lastRasterCenterX);
-		boolean dimensionChanged = lastRasterDimension != null && !lastRasterDimension.equals(dimension);
-		boolean moved = !firstRaster
+		final boolean firstRaster = Double.isNaN(lastRasterCenterX);
+		final boolean dimensionChanged = lastRasterDimension != null && !lastRasterDimension.equals(dimension);
+		final boolean moved = !firstRaster
 			&& Math.hypot(centerX - lastRasterCenterX, centerZ - lastRasterCenterZ) >= 0.01;
-		boolean idleRefresh = ticksSinceRaster >= IDLE_REFRESH_TICKS;
+		final boolean idleRefresh = ticksSinceRaster >= IDLE_REFRESH_TICKS;
 
 		if (firstRaster || dimensionChanged || idleRefresh) {
 			renderer.markDirty();
@@ -101,10 +101,10 @@ public final class MinimapOverlay {
 			false
 		);
 
-		int frameInset = MapUiStyles.minimapFrameOuterInset();
-		int frameLeft = left - frameInset;
-		int frameWidth = MINIMAP_SIZE + frameInset * 2;
-		int coordsTop = top + MINIMAP_SIZE + frameInset + 2;
+		final int frameInset = MapUiStyles.minimapFrameOuterInset();
+		final int frameLeft = left - frameInset;
+		final int frameWidth = MINIMAP_SIZE + frameInset * 2;
+		final int coordsTop = top + MINIMAP_SIZE + frameInset + 2;
 		MapUiStyles.drawMinimapCoords(
 			graphics,
 			client.font,
