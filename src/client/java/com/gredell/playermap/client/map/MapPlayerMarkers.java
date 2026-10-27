@@ -10,12 +10,52 @@ import net.minecraft.util.ARGB;
 import net.minecraft.world.level.Level;
 
 import java.util.List;
+import java.util.Optional;
 import java.util.UUID;
 
 public final class MapPlayerMarkers {
 	private static final int ARROW_RADIUS = 11;
+	static final int HOVER_RADIUS = 8;
 
 	private MapPlayerMarkers() {
+	}
+
+	public static Optional<PlayerPosition> findPlayerAt(
+		ResourceKey<Level> dimension,
+		double viewCenterX,
+		double viewCenterZ,
+		double blocksPerPixel,
+		int mapLeft,
+		int mapTop,
+		int mapWidth,
+		int mapHeight,
+		UUID localUuid,
+		double mouseX,
+		double mouseY,
+		boolean includeLocal
+	) {
+		PlayerPosition closest = null;
+		double closestDist = HOVER_RADIUS + 1;
+
+		for (PlayerPosition player : ClientPlayerMapData.playersInDimension(dimension)) {
+			if (!includeLocal && localUuid != null && player.uuid().equals(localUuid)) {
+				continue;
+			}
+
+			int screenX = MapViewMath.worldToScreenX(player.x(), viewCenterX, blocksPerPixel, mapLeft, mapWidth);
+			int screenY = MapViewMath.worldToScreenZ(player.z(), viewCenterZ, blocksPerPixel, mapTop, mapHeight);
+			if (screenX < mapLeft - 12 || screenX > mapLeft + mapWidth + 12 || screenY < mapTop - 12 || screenY > mapTop + mapHeight + 12) {
+				continue;
+			}
+
+			double dist = Math.hypot(mouseX - screenX, mouseY - screenY);
+			if (dist <= HOVER_RADIUS && dist < closestDist) {
+				closest = player;
+				closestDist = dist;
+			}
+		}
+
+		return Optional.ofNullable(closest);
 	}
 
 	public static void render(
@@ -52,7 +92,11 @@ public final class MapPlayerMarkers {
 				drawOtherPlayerMarker(graphics, screenX, screenY);
 			}
 
-			if (showTooltips && Math.hypot(mouseX - screenX, mouseY - screenY) <= 8) {
+			if (PlayerWaypoint.targets(player.uuid())) {
+				graphics.renderOutline(screenX - 6, screenY - 6, 13, 13, ARGB.color(255, 255, 210, 80));
+			}
+
+			if (showTooltips && mouseX >= 0 && mouseY >= 0 && Math.hypot(mouseX - screenX, mouseY - screenY) <= HOVER_RADIUS) {
 				hovered = player;
 			}
 		}
@@ -75,7 +119,7 @@ public final class MapPlayerMarkers {
 		}
 	}
 
-	private static void drawLocalPlayerArrow(GuiGraphics graphics, int centerX, int centerY, float yawDegrees) {
+	public static void drawLocalPlayerArrow(GuiGraphics graphics, int centerX, int centerY, float yawDegrees) {
 		double rad = Math.toRadians(yawDegrees);
 		double cos = Math.cos(rad);
 		double sin = Math.sin(rad);

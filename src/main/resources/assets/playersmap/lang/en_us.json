@@ -1,4 +1,14 @@
 {
   "key.playersmap.open_map": "Toggle Players Map",
-  "key.playersmap.toggle_minimap": "Toggle Minimap"
+  "key.playersmap.toggle_minimap": "Toggle Minimap",
+  "gui.playersmap.zoom.in": "Zoom in",
+  "gui.playersmap.zoom.out": "Zoom out",
+  "gui.playersmap.zoom.reset": "Reset",
+  "gui.playersmap.zoom.reset.tooltip": "Reset zoom to default",
+  "gui.playersmap.waypoint.set": "Set waypoint to %s",
+  "gui.playersmap.waypoint.clear": "Clear waypoint",
+  "gui.playersmap.waypoint.hud": "%s · %s blocks",
+  "gui.playersmap.waypoint.wrong_dimension": "%s · in %s",
+  "gui.playersmap.waypoint.unavailable": "Waypoint unavailable",
+  "key.playersmap.clear_waypoint": "Clear player waypoint"
 }
