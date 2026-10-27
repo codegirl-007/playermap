@@ -1,7 +1,8 @@
 package com.gredell.playermap.client.map;
 
 /**
- * Immutable copy of one chunk's surface columns for off-thread rasterization.
+ * Immutable surface columns for one chunk. Arrays are owned by this snapshot and must not be mutated
+ * after publish (new captures replace the cache entry with a new snapshot instance).
  */
 public final class ChunkSurfaceSnapshot {
 	private final int chunkX;
@@ -9,22 +10,13 @@ public final class ChunkSurfaceSnapshot {
 	private final int[] colors;
 	private final short[] heights;
 	private final byte[] flags;
-	private final boolean exploredFrontier;
 
-	ChunkSurfaceSnapshot(
-		int chunkX,
-		int chunkZ,
-		int[] colors,
-		short[] heights,
-		byte[] flags,
-		boolean exploredFrontier
-	) {
+	ChunkSurfaceSnapshot(int chunkX, int chunkZ, int[] colors, short[] heights, byte[] flags) {
 		this.chunkX = chunkX;
 		this.chunkZ = chunkZ;
 		this.colors = colors;
 		this.heights = heights;
 		this.flags = flags;
-		this.exploredFrontier = exploredFrontier;
 	}
 
 	public int chunkX() {
@@ -37,10 +29,6 @@ public final class ChunkSurfaceSnapshot {
 
 	public long chunkKey() {
 		return net.minecraft.world.level.ChunkPos.asLong(chunkX, chunkZ);
-	}
-
-	public boolean exploredFrontier() {
-		return exploredFrontier;
 	}
 
 	public int color(int worldX, int worldZ) {

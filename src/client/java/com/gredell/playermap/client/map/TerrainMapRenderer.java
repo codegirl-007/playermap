@@ -13,8 +13,8 @@ import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutorService;
 
 public final class TerrainMapRenderer {
-	private static final int ASYNC_REBUILD_TEXEL_THRESHOLD = 12_000;
 	private static final int PLACEHOLDER_COLOR = 0xFF12151E;
+	private static final int STRIP_FILL_TIME_CHECK_INTERVAL = 32;
 
 	private final Identifier textureId;
 	private final int maxTextureSize;
@@ -33,6 +33,9 @@ public final class TerrainMapRenderer {
 
 	private volatile long rebuildGeneration;
 	private CompletableFuture<RasterJobResult> asyncRebuild;
+	private MapRasterContext.Prepare pendingPrepare;
+	private PendingPanScroll pendingPanScroll;
+	private PendingTextureUpload pendingTextureUpload;
 
 	public TerrainMapRenderer(Identifier textureId, int maxTextureSize) {
 		this.textureId = textureId;
@@ -42,12 +45,18 @@ public final class TerrainMapRenderer {
 	public void markDirty() {
 		rebuildGeneration++;
 		asyncRebuild = null;
+		pendingPrepare = null;
+		pendingPanScroll = null;
+		pendingTextureUpload = null;
 		dirty = true;
 	}
 
 	public void close(Minecraft client) {
 		rebuildGeneration++;
 		asyncRebuild = null;
+		pendingPrepare = null;
+		pendingPanScroll = null;
+		pendingTextureUpload = null;
 		if (texture != null) {
 			texture.close();
 			texture = null;
@@ -121,18 +130,65 @@ public final class TerrainMapRenderer {
 			return;
 		}
 
-		if (tryFinishAsyncRebuild(image)) {
+		long frameDeadline = MapFrameBudget.deadlineNanos();
+
+		if (tryFinishAsyncRebuild(image, frameDeadline)) {
 			// Applied finished background raster this frame.
+		}
+
+		if (pendingTextureUpload != null) {
+			if (pendingTextureUpload.generation != rebuildGeneration) {
+				pendingTextureUpload = null;
+			} else {
+				tickStagedTextureUpload(image, frameDeadline);
+				return;
+			}
 		}
 
 		if (asyncRebuild != null && !asyncRebuild.isDone()) {
 			return;
 		}
-
 		double halfSpanX = (textureWidth * blocksPerPixel) / 2.0;
 		double halfSpanZ = (textureHeight * blocksPerPixel) / 2.0;
 		double minX = viewCenterX - halfSpanX;
 		double minZ = viewCenterZ - halfSpanZ;
+
+		if (pendingPanScroll != null) {
+			PendingPanScroll pending = pendingPanScroll;
+			if (pending.generation != rebuildGeneration
+				|| pending.targetMinX != minX
+				|| pending.targetMinZ != minZ) {
+				pendingPanScroll = null;
+			} else {
+				if (tickPendingPanScroll(client, image, frameDeadline)) {
+					texture.upload();
+				}
+				return;
+			}
+		}
+
+		if (pendingPrepare != null) {
+			if (pendingPrepare.jobGeneration() != rebuildGeneration) {
+				pendingPrepare = null;
+			} else {
+				pendingPrepare.advanceWithinBudget(client.level, frameDeadline);
+				if (!pendingPrepare.isComplete()) {
+					return;
+				}
+				MapRasterContext context = pendingPrepare.build();
+				pendingPrepare = null;
+				launchRasterJob(
+					client,
+					dimension,
+					blocksPerPixel,
+					context.minX(),
+					context.minZ(),
+					image,
+					context
+				);
+				return;
+			}
+		}
 
 		if (dirty) {
 			startFullRebuild(client, dimension, viewCenterX, viewCenterZ, blocksPerPixel, minX, minZ, image);
@@ -150,18 +206,18 @@ public final class TerrainMapRenderer {
 		}
 
 		if (minX != lastMinX || minZ != lastMinZ) {
-			switch (tryScrollRebuild(client, image, dimension, blocksPerPixel, minX, minZ)) {
+			switch (tryScrollRebuild(client, image, dimension, blocksPerPixel, minX, minZ, frameDeadline)) {
 				case SCROLLED -> texture.upload();
 				case NEEDS_FULL_REBUILD -> startFullRebuild(
 					client, dimension, viewCenterX, viewCenterZ, blocksPerPixel, minX, minZ, image
 				);
-				case UNCHANGED -> {
+				case UNCHANGED, PENDING -> {
 				}
 			}
 		}
 	}
 
-	private boolean tryFinishAsyncRebuild(NativeImage image) {
+	private boolean tryFinishAsyncRebuild(NativeImage image, long frameDeadline) {
 		if (asyncRebuild == null || !asyncRebuild.isDone()) {
 			return false;
 		}
@@ -170,11 +226,81 @@ public final class TerrainMapRenderer {
 		if (result == null || result.generation != rebuildGeneration) {
 			return false;
 		}
-		MapRasterEngine.writeToImage(image, result.pixels);
-		texture.upload();
+		applyRasterToTexture(
+			image,
+			result.pixels,
+			result.dimension,
+			result.blocksPerPixel,
+			result.minX,
+			result.minZ,
+			frameDeadline
+		);
 		dirty = false;
-		storeRasterState(result.dimension, result.blocksPerPixel, result.minX, result.minZ);
 		return true;
+	}
+
+	private void applyRasterToTexture(
+		NativeImage image,
+		int[] pixels,
+		ResourceKey<Level> dimension,
+		double blocksPerPixel,
+		double minX,
+		double minZ,
+		long frameDeadline
+	) {
+		int texels = textureWidth * textureHeight;
+		long copyNanos = MapRasterEngine.writeToImage(image, textureWidth, textureHeight, pixels);
+
+		if (MapRasterMetrics.preferStagedUpload(texels)) {
+			pendingTextureUpload = PendingTextureUpload.start(
+				rebuildGeneration,
+				texels,
+				copyNanos,
+				dimension,
+				blocksPerPixel,
+				minX,
+				minZ,
+				MapTextureUpload.stagedBandRows(textureHeight)
+			);
+			tickStagedTextureUpload(image, frameDeadline);
+			return;
+		}
+
+		long uploadNanos = MapTextureUpload.uploadFull(texture);
+		MapRasterMetrics.recordApply(texels, copyNanos, uploadNanos);
+		storeRasterState(dimension, blocksPerPixel, minX, minZ);
+	}
+
+	private void tickStagedTextureUpload(NativeImage image, long frameDeadline) {
+		PendingTextureUpload pending = pendingTextureUpload;
+		if (pending == null) {
+			return;
+		}
+		while (pending.nextRow < textureHeight && MapFrameBudget.hasTimeRemaining(frameDeadline)) {
+			int rows = Math.min(pending.bandRows, textureHeight - pending.nextRow);
+			try {
+				pending.accumulatedUploadNanos += MapTextureUpload.uploadBand(
+					texture,
+					image,
+					0,
+					pending.nextRow,
+					pending.nextRow,
+					textureWidth,
+					rows
+				);
+			} catch (IllegalArgumentException ex) {
+				pending.accumulatedUploadNanos += MapTextureUpload.uploadFull(texture);
+				pending.nextRow = textureHeight;
+				break;
+			}
+			pending.nextRow += rows;
+		}
+		if (pending.nextRow < textureHeight) {
+			return;
+		}
+		MapRasterMetrics.recordApply(pending.texels, pending.copyNanos, pending.accumulatedUploadNanos);
+		storeRasterState(pending.dimension, pending.blocksPerPixel, pending.minX, pending.minZ);
+		pendingTextureUpload = null;
 	}
 
 	private void startFullRebuild(
@@ -187,10 +313,10 @@ public final class TerrainMapRenderer {
 		double minZ,
 		NativeImage image
 	) {
-		int texels = textureWidth * textureHeight;
 		long jobGen = ++rebuildGeneration;
-		MapRasterContext context = MapRasterContext.capture(
-			client.level,
+		pendingPanScroll = null;
+		pendingTextureUpload = null;
+		pendingPrepare = MapRasterContext.beginPrepare(
 			dimension,
 			blocksPerPixel,
 			minX,
@@ -199,9 +325,29 @@ public final class TerrainMapRenderer {
 			textureHeight,
 			jobGen
 		);
+		dirty = false;
+		pendingPrepare.advanceWithinBudget(client.level, MapFrameBudget.deadlineNanos());
+		if (!pendingPrepare.isComplete()) {
+			return;
+		}
+		MapRasterContext context = pendingPrepare.build();
+		pendingPrepare = null;
+		launchRasterJob(client, dimension, blocksPerPixel, minX, minZ, image, context);
+	}
 
-		if (texels > ASYNC_REBUILD_TEXEL_THRESHOLD) {
-			dirty = false;
+	private void launchRasterJob(
+		Minecraft client,
+		ResourceKey<Level> dimension,
+		double blocksPerPixel,
+		double minX,
+		double minZ,
+		NativeImage image,
+		MapRasterContext context
+	) {
+		int texels = textureWidth * textureHeight;
+		long jobGen = context.jobGeneration();
+
+		if (MapFrameBudget.shouldRasterOnWorker(texels)) {
 			long capturedGen = jobGen;
 			asyncRebuild = CompletableFuture.supplyAsync(
 				() -> {
@@ -223,14 +369,12 @@ public final class TerrainMapRenderer {
 		if (pixels == null) {
 			return;
 		}
-		MapRasterEngine.writeToImage(image, pixels);
-		texture.upload();
-		dirty = false;
-		storeRasterState(dimension, blocksPerPixel, minX, minZ);
+		applyRasterToTexture(image, pixels, dimension, blocksPerPixel, minX, minZ, MapFrameBudget.deadlineNanos());
 	}
 
 	private enum ScrollOutcome {
 		UNCHANGED,
+		PENDING,
 		SCROLLED,
 		NEEDS_FULL_REBUILD
 	}
@@ -241,7 +385,8 @@ public final class TerrainMapRenderer {
 		ResourceKey<Level> dimension,
 		double blocksPerPixel,
 		double minX,
-		double minZ
+		double minZ,
+		long frameDeadline
 	) {
 		if (!rasterValid || !dimension.equals(lastDimension) || Double.compare(blocksPerPixel, lastBlocksPerPixel) != 0) {
 			return ScrollOutcome.NEEDS_FULL_REBUILD;
@@ -256,9 +401,7 @@ public final class TerrainMapRenderer {
 			return ScrollOutcome.NEEDS_FULL_REBUILD;
 		}
 
-		scrollImageInPlace(image, deltaPx, deltaPz);
-		MapRasterContext context = MapRasterContext.capture(
-			client.level,
+		MapRasterContext.Prepare prep = MapRasterContext.beginPrepare(
 			dimension,
 			blocksPerPixel,
 			minX,
@@ -267,7 +410,38 @@ public final class TerrainMapRenderer {
 			textureHeight,
 			rebuildGeneration
 		);
-		fillExposedStrips(context, image, deltaPx, deltaPz);
+		prep.advanceWithinBudget(client.level, frameDeadline);
+		if (!prep.isComplete()) {
+			pendingPanScroll = PendingPanScroll.preparing(
+				rebuildGeneration,
+				prep,
+				deltaPx,
+				deltaPz,
+				dimension,
+				blocksPerPixel,
+				minX,
+				minZ
+			);
+			return ScrollOutcome.PENDING;
+		}
+
+		MapRasterContext context = prep.build();
+		scrollImageInPlace(image, deltaPx, deltaPz);
+		StripFillProgress progress = new StripFillProgress(deltaPx, deltaPz);
+		if (!fillExposedStripsWithinBudget(context, image, deltaPx, deltaPz, progress, frameDeadline)) {
+			pendingPanScroll = PendingPanScroll.filling(
+				rebuildGeneration,
+				context,
+				deltaPx,
+				deltaPz,
+				dimension,
+				blocksPerPixel,
+				minX,
+				minZ,
+				progress
+			);
+			return ScrollOutcome.PENDING;
+		}
 		storeRasterState(
 			dimension,
 			blocksPerPixel,
@@ -277,40 +451,96 @@ public final class TerrainMapRenderer {
 		return ScrollOutcome.SCROLLED;
 	}
 
-	private void fillExposedStrips(
+	private boolean tickPendingPanScroll(Minecraft client, NativeImage image, long frameDeadline) {
+		PendingPanScroll pending = pendingPanScroll;
+		if (pending.prepare != null) {
+			pending.prepare.advanceWithinBudget(client.level, frameDeadline);
+			if (!pending.prepare.isComplete()) {
+				return false;
+			}
+			pending.context = pending.prepare.build();
+			pending.prepare = null;
+			scrollImageInPlace(image, pending.deltaPx, pending.deltaPz);
+		}
+
+		if (fillExposedStripsWithinBudget(
+			pending.context,
+			image,
+			pending.deltaPx,
+			pending.deltaPz,
+			pending.fillProgress,
+			frameDeadline
+		)) {
+			storeRasterState(
+				pending.dimension,
+				pending.blocksPerPixel,
+				pending.targetMinX,
+				pending.targetMinZ
+			);
+			pendingPanScroll = null;
+			return true;
+		}
+		return false;
+	}
+
+	private boolean fillExposedStripsWithinBudget(
 		MapRasterContext context,
 		NativeImage image,
 		int deltaPx,
-		int deltaPz
+		int deltaPz,
+		StripFillProgress progress,
+		long frameDeadline
 	) {
 		MapRasterEngine.RasterPass pass = new MapRasterEngine.RasterPass(context);
-		if (deltaPx > 0) {
-			for (int px = textureWidth - deltaPx; px < textureWidth; px++) {
-				for (int pz = 0; pz < textureHeight; pz++) {
+		int samplesSinceCheck = 0;
+
+		if (!progress.xStripsDone) {
+			int pxStart = deltaPx > 0 ? textureWidth - deltaPx : 0;
+			int pxEnd = deltaPx > 0 ? textureWidth : -deltaPx;
+			for (int px = Math.max(progress.xPx, pxStart); px < pxEnd; px++) {
+				int pzStart = px == progress.xPx ? progress.xPz : 0;
+				for (int pz = pzStart; pz < textureHeight; pz++) {
 					image.setPixel(px, pz, pass.sampleTexel(px, pz));
+					if (++samplesSinceCheck >= STRIP_FILL_TIME_CHECK_INTERVAL
+						&& !MapFrameBudget.hasTimeRemaining(frameDeadline)) {
+						progress.xPx = px;
+						progress.xPz = pz + 1;
+						if (progress.xPz >= textureHeight) {
+							progress.xPx = px + 1;
+							progress.xPz = 0;
+						}
+						return false;
+					}
 				}
 			}
-		} else if (deltaPx < 0) {
-			for (int px = 0; px < -deltaPx; px++) {
-				for (int pz = 0; pz < textureHeight; pz++) {
-					image.setPixel(px, pz, pass.sampleTexel(px, pz));
-				}
-			}
+			progress.xStripsDone = true;
+			progress.xPx = 0;
+			progress.xPz = 0;
 		}
 
-		if (deltaPz > 0) {
-			for (int pz = textureHeight - deltaPz; pz < textureHeight; pz++) {
-				for (int px = 0; px < textureWidth; px++) {
+		if (!progress.zStripsDone) {
+			int pzStart = deltaPz > 0 ? textureHeight - deltaPz : 0;
+			int pzEnd = deltaPz > 0 ? textureHeight : -deltaPz;
+			for (int pz = Math.max(progress.zPz, pzStart); pz < pzEnd; pz++) {
+				int pxStart = pz == progress.zPz ? progress.zPx : 0;
+				for (int px = pxStart; px < textureWidth; px++) {
 					image.setPixel(px, pz, pass.sampleTexel(px, pz));
+					if (++samplesSinceCheck >= STRIP_FILL_TIME_CHECK_INTERVAL
+						&& !MapFrameBudget.hasTimeRemaining(frameDeadline)) {
+						progress.zPz = pz;
+						progress.zPx = px + 1;
+						if (progress.zPx >= textureWidth) {
+							progress.zPz = pz + 1;
+							progress.zPx = 0;
+						}
+						return false;
+					}
 				}
 			}
-		} else if (deltaPz < 0) {
-			for (int pz = 0; pz < -deltaPz; pz++) {
-				for (int px = 0; px < textureWidth; px++) {
-					image.setPixel(px, pz, pass.sampleTexel(px, pz));
-				}
-			}
+			progress.zStripsDone = true;
 		}
+
+		return true;
 	}
 
 	private static void scrollImageInPlace(NativeImage image, int deltaPx, int deltaPz) {
@@ -386,7 +616,165 @@ public final class TerrainMapRenderer {
 		rasterValid = false;
 		rebuildGeneration++;
 		asyncRebuild = null;
+		pendingPrepare = null;
+		pendingPanScroll = null;
+		pendingTextureUpload = null;
 		return true;
+	}
+
+	private static final class PendingTextureUpload {
+		final long generation;
+		final int texels;
+		final long copyNanos;
+		final ResourceKey<Level> dimension;
+		final double blocksPerPixel;
+		final double minX;
+		final double minZ;
+		final int bandRows;
+		int nextRow;
+		long accumulatedUploadNanos;
+
+		private PendingTextureUpload(
+			long generation,
+			int texels,
+			long copyNanos,
+			ResourceKey<Level> dimension,
+			double blocksPerPixel,
+			double minX,
+			double minZ,
+			int bandRows
+		) {
+			this.generation = generation;
+			this.texels = texels;
+			this.copyNanos = copyNanos;
+			this.dimension = dimension;
+			this.blocksPerPixel = blocksPerPixel;
+			this.minX = minX;
+			this.minZ = minZ;
+			this.bandRows = bandRows;
+		}
+
+		static PendingTextureUpload start(
+			long generation,
+			int texels,
+			long copyNanos,
+			ResourceKey<Level> dimension,
+			double blocksPerPixel,
+			double minX,
+			double minZ,
+			int bandRows
+		) {
+			return new PendingTextureUpload(
+				generation,
+				texels,
+				copyNanos,
+				dimension,
+				blocksPerPixel,
+				minX,
+				minZ,
+				bandRows
+			);
+		}
+	}
+
+	private static final class StripFillProgress {
+		boolean xStripsDone;
+		int xPx;
+		int xPz;
+		boolean zStripsDone;
+		int zPx;
+		int zPz;
+
+		StripFillProgress(int deltaPx, int deltaPz) {
+			xStripsDone = deltaPx == 0;
+			zStripsDone = deltaPz == 0;
+		}
+	}
+
+	private static final class PendingPanScroll {
+		final long generation;
+		MapRasterContext.Prepare prepare;
+		MapRasterContext context;
+		final int deltaPx;
+		final int deltaPz;
+		final ResourceKey<Level> dimension;
+		final double blocksPerPixel;
+		final double targetMinX;
+		final double targetMinZ;
+		final StripFillProgress fillProgress;
+
+		private PendingPanScroll(
+			long generation,
+			MapRasterContext.Prepare prepare,
+			MapRasterContext context,
+			int deltaPx,
+			int deltaPz,
+			ResourceKey<Level> dimension,
+			double blocksPerPixel,
+			double targetMinX,
+			double targetMinZ,
+			StripFillProgress fillProgress
+		) {
+			this.generation = generation;
+			this.prepare = prepare;
+			this.context = context;
+			this.deltaPx = deltaPx;
+			this.deltaPz = deltaPz;
+			this.dimension = dimension;
+			this.blocksPerPixel = blocksPerPixel;
+			this.targetMinX = targetMinX;
+			this.targetMinZ = targetMinZ;
+			this.fillProgress = fillProgress;
+		}
+
+		static PendingPanScroll preparing(
+			long generation,
+			MapRasterContext.Prepare prepare,
+			int deltaPx,
+			int deltaPz,
+			ResourceKey<Level> dimension,
+			double blocksPerPixel,
+			double targetMinX,
+			double targetMinZ
+		) {
+			return new PendingPanScroll(
+				generation,
+				prepare,
+				null,
+				deltaPx,
+				deltaPz,
+				dimension,
+				blocksPerPixel,
+				targetMinX,
+				targetMinZ,
+				new StripFillProgress(deltaPx, deltaPz)
+			);
+		}
+
+		static PendingPanScroll filling(
+			long generation,
+			MapRasterContext context,
+			int deltaPx,
+			int deltaPz,
+			ResourceKey<Level> dimension,
+			double blocksPerPixel,
+			double targetMinX,
+			double targetMinZ,
+			StripFillProgress fillProgress
+		) {
+			return new PendingPanScroll(
+				generation,
+				null,
+				context,
+				deltaPx,
+				deltaPz,
+				dimension,
+				blocksPerPixel,
+				targetMinX,
+				targetMinZ,
+				fillProgress
+			);
+		}
 	}
 
 	private record RasterJobResult(

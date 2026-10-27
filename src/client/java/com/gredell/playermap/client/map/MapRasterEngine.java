@@ -29,11 +29,21 @@ public final class MapRasterEngine {
 		return pixels;
 	}
 
-	public static void writeToImage(NativeImage image, int[] pixels) {
-		int w = image.getWidth();
-		for (int i = 0; i < pixels.length; i++) {
-			image.setPixel(i % w, i / w, pixels[i]);
+	/**
+	 * Copies raster output into a {@link NativeImage} using row-major order (no per-pixel division).
+	 *
+	 * @return CPU time spent copying, in nanoseconds
+	 */
+	public static long writeToImage(NativeImage image, int width, int height, int[] pixels) {
+		long start = System.nanoTime();
+		int rowBase = 0;
+		for (int z = 0; z < height; z++) {
+			for (int x = 0; x < width; x++) {
+				image.setPixel(x, z, pixels[rowBase + x]);
+			}
+			rowBase += width;
 		}
+		return System.nanoTime() - start;
 	}
 
 	public static final class RasterPass {
@@ -57,25 +67,20 @@ public final class MapRasterEngine {
 		public int sampleBlock(int blockX, int blockZ) {
 			int cx = blockX >> 4;
 			int cz = blockZ >> 4;
-			if (!context.isExplored(cx, cz)) {
-				return context.unexploredColor();
-			}
-
 			ChunkSurfaceSnapshot snapshot = context.snapshot(cx, cz);
 			if (snapshot == null) {
-				return context.unloadedColor();
+				return context.missingDataColor();
 			}
 
 			int base = snapshot.color(blockX, blockZ);
 			if (base == 0) {
-				return context.unloadedColor();
+				return context.missingDataColor();
 			}
 
 			short height = snapshot.height(blockX, blockZ);
 			return finishTerrain(
 				base,
 				snapshot.water(blockX, blockZ),
-				snapshot,
 				height,
 				heightAt(blockX, blockZ - 1),
 				heightAt(blockX, blockZ + 1),
@@ -96,7 +101,7 @@ public final class MapRasterEngine {
 			int stepZ = Math.max(1, (z1 - z0 + 1) / 7);
 
 			dominantCounts.clear();
-			int bestColor = context.unloadedColor();
+			int bestColor = context.missingDataColor();
 			int bestCount = 0;
 
 			for (int bx = x0; bx <= x1; bx += stepX) {
@@ -119,9 +124,6 @@ public final class MapRasterEngine {
 		private short heightAt(int blockX, int blockZ) {
 			int cx = blockX >> 4;
 			int cz = blockZ >> 4;
-			if (!context.isExplored(cx, cz)) {
-				return Short.MIN_VALUE;
-			}
 			ChunkSurfaceSnapshot snapshot = context.snapshot(cx, cz);
 			if (snapshot == null) {
 				return Short.MIN_VALUE;
@@ -132,7 +134,6 @@ public final class MapRasterEngine {
 		private int finishTerrain(
 			int base,
 			boolean water,
-			ChunkSurfaceSnapshot snapshot,
 			short surfaceY,
 			short northY,
 			short southY,
@@ -141,11 +142,7 @@ public final class MapRasterEngine {
 		) {
 			int shaded = MapTerrainShading.apply(base, surfaceY, northY, southY, eastY, westY, context.overworld());
 			int readable = MapColorUtil.adjustForReadability(shaded);
-			int tinted = MapColorUtil.tintWater(readable, water);
-			if (snapshot.exploredFrontier()) {
-				return MapColorUtil.darken(tinted, 0.90F);
-			}
-			return tinted;
+			return MapColorUtil.tintWater(readable, water);
 		}
 	}
 }
