@@ -20,7 +20,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
 
-public class MapScreen extends Screen {
+public class MapScreen extends Screen implements MapMouseActions.Host {
 	private static final int MAX_MAP_TEXTURE = 512;
 	private static final double DEFAULT_BLOCKS_PER_PIXEL = 2.0;
 	private static final double MIN_BLOCKS_PER_PIXEL = 0.5;
@@ -49,9 +49,7 @@ public class MapScreen extends Screen {
 	private boolean followPlayer = true;
 	private Button zoomInButton;
 	private Button zoomOutButton;
-	private boolean dragging;
-	private double lastDragMouseX;
-	private double lastDragMouseY;
+	private final MapMouseActions mouseActions = new MapMouseActions(this);
 	private final List<Button> waypointContextButtons = new ArrayList<>();
 
 	protected MapScreen(ResourceKey<Level> dimension, double centerX, double centerZ) {
@@ -187,43 +185,22 @@ public class MapScreen extends Screen {
 		if (super.mouseClicked(event, doubleClick)) {
 			return true;
 		}
-		if (event.button() == GLFW.GLFW_MOUSE_BUTTON_RIGHT && isMapInteraction(event.x(), event.y())) {
-			UUID localUuid = minecraft.player != null ? minecraft.player.getUUID() : null;
-			var hit = MapPlayerMarkers.findPlayerAt(
-				viewDimension,
-				viewCenterX,
-				viewCenterZ,
-				blocksPerPixel,
-				0,
-				0,
-				width,
-				height,
-				localUuid,
-				event.x(),
-				event.y(),
-				false
-			);
-			dismissWaypointMenu();
-			hit.ifPresent(player -> showWaypointMenu(player, event.x(), event.y()));
-			return true;
-		}
-		if (event.button() == 0) {
-			dismissWaypointMenu();
-			if (isMapInteraction(event.x(), event.y())) {
-				dragging = true;
-				followPlayer = false;
-				lastDragMouseX = event.x();
-				lastDragMouseY = event.y();
-				return true;
-			}
-		}
-		return false;
+		final UUID localUuid = minecraft.player != null ? minecraft.player.getUUID() : null;
+		return mouseActions.mouseClicked(
+			event,
+			viewDimension,
+			viewCenterX,
+			viewCenterZ,
+			blocksPerPixel,
+			width,
+			height,
+			localUuid
+		);
 	}
 
 	@Override
 	public boolean mouseReleased(MouseButtonEvent event) {
-		if (event.button() == 0 && dragging) {
-			dragging = false;
+		if (mouseActions.mouseReleased(event)) {
 			return true;
 		}
 		return super.mouseReleased(event);
@@ -231,11 +208,7 @@ public class MapScreen extends Screen {
 
 	@Override
 	public boolean mouseDragged(MouseButtonEvent event, double deltaX, double deltaY) {
-		if (dragging) {
-			viewCenterX -= (event.x() - lastDragMouseX) * blocksPerPixel;
-			viewCenterZ -= (event.y() - lastDragMouseY) * blocksPerPixel;
-			lastDragMouseX = event.x();
-			lastDragMouseY = event.y();
+		if (mouseActions.mouseDragged(event)) {
 			return true;
 		}
 		return super.mouseDragged(event, deltaX, deltaY);
@@ -243,8 +216,7 @@ public class MapScreen extends Screen {
 
 	@Override
 	public boolean mouseScrolled(double mouseX, double mouseY, double scrollX, double scrollY) {
-		if (isMapInteraction(mouseX, mouseY)) {
-			adjustZoom(scrollY > 0 ? ZOOM_IN_FACTOR : ZOOM_OUT_FACTOR);
+		if (mouseActions.mouseScrolled(mouseX, mouseY, scrollY)) {
 			return true;
 		}
 		return super.mouseScrolled(mouseX, mouseY, scrollX, scrollY);
@@ -354,6 +326,48 @@ public class MapScreen extends Screen {
 		updateZoomButtonStates();
 	}
 
+	@Override
+	public boolean isMapInteraction(final double mouseX, final double mouseY) {
+		final int tabCount = MapDimensions.availableLayers(minecraft).size();
+		final int tabStripBottom = TAB_INSET + TAB_HEIGHT + 4;
+		final int tabStripRight = TAB_INSET + (TAB_WIDTH + TAB_SPACING) * tabCount;
+		final boolean belowTabs = mouseY > tabStripBottom;
+		final boolean rightOfTabs = mouseX > tabStripRight;
+		if (isOverZoomControls(mouseX, mouseY)) {
+			return false;
+		}
+		if (tabCount <= 1) {
+			return true;
+		}
+		return belowTabs || rightOfTabs;
+	}
+
+	@Override
+	public void beginDragPan() {
+		followPlayer = false;
+	}
+
+	@Override
+	public void panByMouseDelta(
+		final double lastMouseX,
+		final double lastMouseY,
+		final double mouseX,
+		final double mouseY
+	) {
+		viewCenterX -= (mouseX - lastMouseX) * blocksPerPixel;
+		viewCenterZ -= (mouseY - lastMouseY) * blocksPerPixel;
+	}
+
+	@Override
+	public void zoomIn() {
+		adjustZoom(ZOOM_IN_FACTOR);
+	}
+
+	@Override
+	public void zoomOut() {
+		adjustZoom(ZOOM_OUT_FACTOR);
+	}
+
 	private void adjustZoom(double factor) {
 		double next = MapViewMath.clamp(blocksPerPixel * factor, MIN_BLOCKS_PER_PIXEL, MAX_BLOCKS_PER_PIXEL);
 		if (Double.compare(next, blocksPerPixel) == 0) {
@@ -391,27 +405,18 @@ public class MapScreen extends Screen {
 		return mouseX >= left && mouseX < right && mouseY >= top && mouseY < bottom;
 	}
 
-	private boolean isMapInteraction(double mouseX, double mouseY) {
-		if (isOverZoomControls(mouseX, mouseY)) {
-			return false;
-		}
-		int tabCount = MapDimensions.availableLayers(minecraft).size();
-		if (tabCount <= 1) {
-			return true;
-		}
-		return mouseY > TAB_INSET + TAB_HEIGHT + 4 || mouseX > TAB_INSET + (TAB_WIDTH + TAB_SPACING) * tabCount;
-	}
-
-	private void dismissWaypointMenu() {
+	@Override
+	public void dismissWaypointMenu() {
 		for (Button button : waypointContextButtons) {
 			removeWidget(button);
 		}
 		waypointContextButtons.clear();
 	}
 
-	private void showWaypointMenu(PlayerPosition player, double mouseX, double mouseY) {
-		int x = Mth.clamp((int) mouseX, 4, width - WAYPOINT_MENU_WIDTH - 4);
-		int y = Mth.clamp((int) mouseY, TAB_INSET + TAB_HEIGHT + 4, height - WAYPOINT_MENU_HEIGHT - 4);
+	@Override
+	public void showWaypointMenu(final PlayerPosition player, final double mouseX, final double mouseY) {
+		final int x = Mth.clamp((int) mouseX, 4, width - WAYPOINT_MENU_WIDTH - 4);
+		final int y = Mth.clamp((int) mouseY, TAB_INSET + TAB_HEIGHT + 4, height - WAYPOINT_MENU_HEIGHT - 4);
 		int row = 0;
 
 		if (PlayerWaypoint.targets(player.uuid())) {
