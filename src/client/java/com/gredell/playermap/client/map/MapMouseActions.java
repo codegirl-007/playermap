@@ -9,7 +9,7 @@ import org.lwjgl.glfw.GLFW;
 import java.util.UUID;
 
 public final class MapMouseActions {
-	interface Host {
+	public interface Host {
 		boolean isMapInteraction(double mouseX, double mouseY);
 
 		void dismissWaypointMenu();
@@ -30,38 +30,38 @@ public final class MapMouseActions {
 	private double lastDragMouseX;
 	private double lastDragMouseY;
 
-	MapMouseActions(Host host) {
+	public MapMouseActions(final Host host) {
 		this.host = host;
 	}
 
-	boolean mouseClicked(
-		MouseButtonEvent event,
-		ResourceKey<Level> dimension,
-		double viewCenterX,
-		double viewCenterZ,
-		double blocksPerPixel,
-		int mapWidth,
-		int mapHeight,
-		UUID localUuid
+	public boolean mouseClicked(
+		final MouseButtonEvent event,
+		final ResourceKey<Level> dimension,
+		final double viewCenterX,
+		final double viewCenterZ,
+		final double blocksPerPixel,
+		final int mapWidth,
+		final int mapHeight,
+		final UUID localUuid
 	) {
 		if (event.button() == GLFW.GLFW_MOUSE_BUTTON_RIGHT) {
 			return rightClick(event, dimension, viewCenterX, viewCenterZ, blocksPerPixel, mapWidth, mapHeight, localUuid);
 		}
-		if (event.button() == 0) {
+		if (event.button() == GLFW.GLFW_MOUSE_BUTTON_LEFT) {
 			return leftClick(event);
 		}
 		return false;
 	}
 
-	boolean mouseReleased(MouseButtonEvent event) {
-		if (event.button() == 0 && dragging) {
+	public boolean mouseReleased(final MouseButtonEvent event) {
+		if (event.button() == GLFW.GLFW_MOUSE_BUTTON_LEFT && dragging) {
 			dragging = false;
 			return true;
 		}
 		return false;
 	}
 
-	boolean mouseDragged(MouseButtonEvent event) {
+	public boolean mouseDragged(final MouseButtonEvent event) {
 		if (!dragging) {
 			return false;
 		}
@@ -71,24 +71,24 @@ public final class MapMouseActions {
 		return true;
 	}
 
-	boolean mouseScrolled(double mouseX, double mouseY, double scrollY) {
+	public boolean mouseScrolled(final double mouseX, final double mouseY, final double scrollY) {
 		return scroll(mouseX, mouseY, scrollY);
 	}
 
 	private boolean rightClick(
-		MouseButtonEvent event,
-		ResourceKey<Level> dimension,
-		double viewCenterX,
-		double viewCenterZ,
-		double blocksPerPixel,
-		int mapWidth,
-		int mapHeight,
-		UUID localUuid
+		final MouseButtonEvent event,
+		final ResourceKey<Level> dimension,
+		final double viewCenterX,
+		final double viewCenterZ,
+		final double blocksPerPixel,
+		final int mapWidth,
+		final int mapHeight,
+		final UUID localUuid
 	) {
 		if (!host.isMapInteraction(event.x(), event.y())) {
 			return false;
 		}
-		var hit = MapPlayerMarkers.findPlayerAt(
+		final var hit = MapPlayerMarkers.findPlayerAt(
 			dimension,
 			viewCenterX,
 			viewCenterZ,
@@ -107,7 +107,7 @@ public final class MapMouseActions {
 		return true;
 	}
 
-	private boolean leftClick(MouseButtonEvent event) {
+	private boolean leftClick(final MouseButtonEvent event) {
 		host.dismissWaypointMenu();
 		if (!host.isMapInteraction(event.x(), event.y())) {
 			return false;
@@ -119,7 +119,7 @@ public final class MapMouseActions {
 		return true;
 	}
 
-	private boolean scroll(double mouseX, double mouseY, double scrollY) {
+	private boolean scroll(final double mouseX, final double mouseY, final double scrollY) {
 		if (!host.isMapInteraction(mouseX, mouseY)) {
 			return false;
 		}

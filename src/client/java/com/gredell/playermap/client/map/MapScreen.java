@@ -185,6 +185,7 @@ public class MapScreen extends Screen implements MapMouseActions.Host {
 		if (super.mouseClicked(event, doubleClick)) {
 			return true;
 		}
+		final UUID localUuid = minecraft.player != null ? minecraft.player.getUUID() : null;
 		return mouseActions.mouseClicked(
 			event,
 			viewDimension,
@@ -193,7 +194,7 @@ public class MapScreen extends Screen implements MapMouseActions.Host {
 			blocksPerPixel,
 			width,
 			height,
-			minecraft.player != null ? minecraft.player.getUUID() : null
+			localUuid
 		);
 	}
 
@@ -326,11 +327,11 @@ public class MapScreen extends Screen implements MapMouseActions.Host {
 	}
 
 	@Override
-	public boolean isMapInteraction(double mouseX, double mouseY) {
+	public boolean isMapInteraction(final double mouseX, final double mouseY) {
 		if (isOverZoomControls(mouseX, mouseY)) {
 			return false;
 		}
-		int tabCount = MapDimensions.availableLayers(minecraft).size();
+		final int tabCount = MapDimensions.availableLayers(minecraft).size();
 		if (tabCount <= 1) {
 			return true;
 		}
@@ -343,7 +344,12 @@ public class MapScreen extends Screen implements MapMouseActions.Host {
 	}
 
 	@Override
-	public void panByMouseDelta(double lastMouseX, double lastMouseY, double mouseX, double mouseY) {
+	public void panByMouseDelta(
+		final double lastMouseX,
+		final double lastMouseY,
+		final double mouseX,
+		final double mouseY
+	) {
 		viewCenterX -= (mouseX - lastMouseX) * blocksPerPixel;
 		viewCenterZ -= (mouseY - lastMouseY) * blocksPerPixel;
 	}
@@ -404,9 +410,9 @@ public class MapScreen extends Screen implements MapMouseActions.Host {
 	}
 
 	@Override
-	public void showWaypointMenu(PlayerPosition player, double mouseX, double mouseY) {
-		int x = Mth.clamp((int) mouseX, 4, width - WAYPOINT_MENU_WIDTH - 4);
-		int y = Mth.clamp((int) mouseY, TAB_INSET + TAB_HEIGHT + 4, height - WAYPOINT_MENU_HEIGHT - 4);
+	public void showWaypointMenu(final PlayerPosition player, final double mouseX, final double mouseY) {
+		final int x = Mth.clamp((int) mouseX, 4, width - WAYPOINT_MENU_WIDTH - 4);
+		final int y = Mth.clamp((int) mouseY, TAB_INSET + TAB_HEIGHT + 4, height - WAYPOINT_MENU_HEIGHT - 4);
 		int row = 0;
 
 		if (PlayerWaypoint.targets(player.uuid())) {
