@@ -12,7 +12,9 @@ import net.minecraft.world.level.Level;
 import java.util.Optional;
 
 public final class WaypointHudOverlay {
-	private static final int ARROW_OFFSET_FROM_BOTTOM = 52;
+	private static final int ARROW_OFFSET_FROM_TOP = 60;
+	private static final int HUD_LABEL_OFFSET = 28;
+	private static final float HUD_ARROW_SCALE = 2.0F;
 	private static final int MIN_ARROW_DISTANCE_BLOCKS = 8;
 
 	private WaypointHudOverlay() {
@@ -37,10 +39,11 @@ public final class WaypointHudOverlay {
 
 		final Optional<PlayerPosition> resolved = PlayerWaypoint.resolve();
 		final int centerX = graphics.guiWidth() / 2;
-		final int baseY = graphics.guiHeight() - ARROW_OFFSET_FROM_BOTTOM;
+		final int arrowY = ARROW_OFFSET_FROM_TOP;
+		final int labelY = arrowY + HUD_LABEL_OFFSET;
 
 		if (resolved.isEmpty()) {
-			drawLabel(graphics, client, centerX, baseY, Component.translatable("gui.playersmap.waypoint.unavailable"));
+			drawLabel(graphics, client, centerX, labelY, Component.translatable("gui.playersmap.waypoint.unavailable"));
 			return;
 		}
 
@@ -54,7 +57,7 @@ public final class WaypointHudOverlay {
 				graphics,
 				client,
 				centerX,
-				baseY,
+				labelY,
 				Component.translatable("gui.playersmap.waypoint.wrong_dimension", name, dimensionName)
 			);
 			return;
@@ -68,14 +71,14 @@ public final class WaypointHudOverlay {
 			graphics,
 			client,
 			centerX,
-			baseY + 14,
+			labelY,
 			Component.translatable("gui.playersmap.waypoint.hud", name, distanceBlocks)
 		);
 
 		if (distanceBlocks >= MIN_ARROW_DISTANCE_BLOCKS) {
 			final float worldYaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
 			final float relativeYaw = worldYaw - client.player.getYRot();
-			MapPlayerMarkers.drawLocalPlayerArrow(graphics, centerX, baseY - 12, relativeYaw);
+			MapPlayerMarkers.drawLocalPlayerArrow(graphics, centerX, arrowY, relativeYaw, HUD_ARROW_SCALE);
 		}
 	}
 
