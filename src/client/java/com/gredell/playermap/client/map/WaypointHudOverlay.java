@@ -4,6 +4,7 @@ import com.gredell.playermap.PlayersMap;
 import com.gredell.playermap.network.PlayerPosition;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.VanillaHudElements;
+import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
@@ -28,7 +29,7 @@ public final class WaypointHudOverlay {
 		);
 	}
 
-	private static void render(final GuiGraphics graphics, final net.minecraft.client.DeltaTracker tickCounter) {
+	private static void render(final GuiGraphics graphics, final DeltaTracker tickCounter) {
 		final Minecraft client = Minecraft.getInstance();
 		if (!PlayerWaypoint.isActive() || client.player == null || client.level == null || client.options.hideGui) {
 			return;
@@ -77,7 +78,7 @@ public final class WaypointHudOverlay {
 
 		if (distanceBlocks >= MIN_ARROW_DISTANCE_BLOCKS) {
 			final float worldYaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
-			final float relativeYaw = worldYaw - client.player.getYRot();
+			final float relativeYaw = 180.0F - (worldYaw - client.player.getYRot());
 			MapPlayerMarkers.drawLocalPlayerArrow(graphics, centerX, arrowY, relativeYaw, HUD_ARROW_SCALE);
 		}
 	}
