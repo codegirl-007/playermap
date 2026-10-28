@@ -74,7 +74,9 @@ public final class WaypointHudOverlay {
 
 		if (distanceBlocks >= MIN_ARROW_DISTANCE_BLOCKS) {
 			final float worldYaw = (float) Math.toDegrees(Math.atan2(-dx, dz));
-			final float relativeYaw = worldYaw - client.player.getYRot();
+			// Map arrow points south (down) at yaw 0. On the HUD, target-ahead should
+			// point up; 180 - bearing flips that axis without swapping left/right.
+			final float relativeYaw = 180.0F - (worldYaw - client.player.getYRot());
 			MapPlayerMarkers.drawLocalPlayerArrow(graphics, centerX, baseY - 12, relativeYaw);
 		}
 	}
