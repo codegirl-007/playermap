@@ -87,7 +87,7 @@ public final class MapPlayerMarkers {
 
 			final boolean isLocal = player.uuid().equals(localUuid);
 			if (isLocal) {
-				drawLocalPlayerArrow(graphics, screenX, screenY, localPlayerYaw);
+				drawLocalPlayerArrow(graphics, screenX, screenY, localPlayerYaw, 1.0F);
 			} else {
 				drawOtherPlayerMarker(graphics, screenX, screenY);
 			}
@@ -123,45 +123,47 @@ public final class MapPlayerMarkers {
 		final GuiGraphics graphics,
 		final int centerX,
 		final int centerY,
-		final float yawDegrees
+		final float yawDegrees,
+		final float scale
 	) {
 		final double rad = Math.toRadians(yawDegrees);
 		final double cos = Math.cos(rad);
 		final double sin = Math.sin(rad);
+		final int radius = (int) Math.ceil(ARROW_RADIUS * scale);
 		final int shadow = ARGB.color(160, 0, 0, 0);
 		final int fill = ARGB.color(255, 90, 220, 255);
 		final int outline = ARGB.color(255, 255, 255, 255);
 
-		for (int dy = -ARROW_RADIUS; dy <= ARROW_RADIUS; dy++) {
-			for (int dx = -ARROW_RADIUS; dx <= ARROW_RADIUS; dx++) {
+		for (int dy = -radius; dy <= radius; dy++) {
+			for (int dx = -radius; dx <= radius; dx++) {
 				final double localX = dx * cos + dy * sin;
 				final double localY = -dx * sin + dy * cos;
-				if (isInsideArrow(localX, localY)) {
+				if (isInsideArrow(localX, localY, scale)) {
 					graphics.fill(centerX + dx + 1, centerY + dy + 1, centerX + dx + 2, centerY + dy + 2, shadow);
 				}
 			}
 		}
 
-		for (int dy = -ARROW_RADIUS; dy <= ARROW_RADIUS; dy++) {
-			for (int dx = -ARROW_RADIUS; dx <= ARROW_RADIUS; dx++) {
+		for (int dy = -radius; dy <= radius; dy++) {
+			for (int dx = -radius; dx <= radius; dx++) {
 				final double localX = dx * cos + dy * sin;
 				final double localY = -dx * sin + dy * cos;
-				if (!isInsideArrow(localX, localY)) {
+				if (!isInsideArrow(localX, localY, scale)) {
 					continue;
 				}
 
-				final boolean edge = !isInsideArrow(localX + 1, localY)
-					|| !isInsideArrow(localX - 1, localY)
-					|| !isInsideArrow(localX, localY + 1)
-					|| !isInsideArrow(localX, localY - 1);
+				final boolean edge = !isInsideArrow(localX + 1, localY, scale)
+					|| !isInsideArrow(localX - 1, localY, scale)
+					|| !isInsideArrow(localX, localY + 1, scale)
+					|| !isInsideArrow(localX, localY - 1, scale);
 				graphics.fill(centerX + dx, centerY + dy, centerX + dx + 1, centerY + dy + 1, edge ? outline : fill);
 			}
 		}
 	}
 
-	private static boolean isInsideArrow(final double localX, final double localY) {
+	private static boolean isInsideArrow(final double localX, final double localY, final float scale) {
 		// Tip at +localY (map +Z / south at yaw 0); base opposite the heading.
-		return pointInTriangle(localX, localY, 0, 9, -5, -5, 5, -5);
+		return pointInTriangle(localX / scale, localY / scale, 0, 9, -5, -5, 5, -5);
 	}
 
 	private static boolean pointInTriangle(
