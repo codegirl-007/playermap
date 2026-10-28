@@ -4,6 +4,7 @@ import com.gredell.playermap.PlayersMap;
 import com.gredell.playermap.network.PlayerPosition;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.HudElementRegistry;
 import net.fabricmc.fabric.api.client.rendering.v1.hud.VanillaHudElements;
+import net.minecraft.client.DeltaTracker;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.GuiGraphics;
 import net.minecraft.network.chat.Component;
@@ -26,7 +27,7 @@ public final class WaypointHudOverlay {
 		);
 	}
 
-	private static void render(final GuiGraphics graphics, final net.minecraft.client.DeltaTracker tickCounter) {
+	private static void render(final GuiGraphics graphics, final DeltaTracker tickCounter) {
 		final Minecraft client = Minecraft.getInstance();
 		if (!PlayerWaypoint.isActive() || client.player == null || client.level == null || client.options.hideGui) {
 			return;
